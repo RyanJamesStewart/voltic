@@ -1,12 +1,19 @@
-# The Python comparison tools. Pin the *resolved* versions here after the
-# benchmark venv install — placeholders below until the Crucible run fills them.
-# Set up with:  python3 -m venv ~/jackal-bench-venv
-#               ~/jackal-bench-venv/bin/pip install py_vollib py_vollib_vectorized QuantLib matplotlib
-#               ~/jackal-bench-venv/bin/pip freeze | grep -iE 'py.vollib|QuantLib|numpy|scipy|pandas|numba|matplotlib' > bench/python/requirements.txt
+# The Python comparison tools — resolved versions, pinned from the benchmark
+# venv on the Crucible run (AMD Ryzen 9 9950X box), 2026-05-12. Reproduce with:
+#   python3 -m venv .venv
+#   .venv/bin/pip install -r bench/python/requirements.txt
+#   taskset -c 0 .venv/bin/python bench/python/bench.py data.csv
+# (data.csv is written by `cargo run --release --bin bench -- --csv data.csv`.)
 #
-# (py_vollib pulls py_lets_be_rational, which is Jäckel's LetsBeRational.cpp —
-#  the reference implementation jackal's accuracy is reported against.)
-py_vollib
-py_vollib_vectorized
-QuantLib
-matplotlib
+# py_vollib pulls py_lets_be_rational, which is Jäckel's LetsBeRational.cpp —
+# the reference implementation jackal's accuracy is reported against.
+py_vollib==1.0.7
+py_lets_be_rational==1.0.1
+py-vollib-vectorized==0.1.1
+QuantLib==1.42.1
+numpy==1.26.4
+scipy==1.17.1
+pandas==2.3.3
+numba==0.65.1
+llvmlite==0.47.0
+matplotlib==3.10.9
