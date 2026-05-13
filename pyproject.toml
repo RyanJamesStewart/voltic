@@ -1,0 +1,21 @@
+[build-system]
+requires = ["maturin>=1.5,<2"]
+build-backend = "maturin"
+
+[project]
+name = "jackal"
+description = "Vectorized Black-Scholes implied-volatility solver."
+requires-python = ">=3.9"
+license = { text = "MIT OR Apache-2.0" }
+classifiers = [
+    "Programming Language :: Rust",
+    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
+]
+dynamic = ["version"]
+
+[tool.maturin]
+features = ["python"]
+# `cargo +nightly` is required (the core uses `std::simd`). With rustup:
+#   rustup override set nightly         # in this dir
+#   maturin develop --release

@@ -1,0 +1,8 @@
+/target
+/Cargo.lock
+/*.csv
+/phi_frontier.*
+__pycache__/
+*.pyc
+/.venv/
+proptest-regressions

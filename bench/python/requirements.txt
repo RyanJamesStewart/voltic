@@ -1,0 +1,12 @@
+# The Python comparison tools. Pin the *resolved* versions here after the
+# benchmark venv install — placeholders below until the Crucible run fills them.
+# Set up with:  python3 -m venv ~/jackal-bench-venv
+#               ~/jackal-bench-venv/bin/pip install py_vollib py_vollib_vectorized QuantLib matplotlib
+#               ~/jackal-bench-venv/bin/pip freeze | grep -iE 'py.vollib|QuantLib|numpy|scipy|pandas|numba|matplotlib' > bench/python/requirements.txt
+#
+# (py_vollib pulls py_lets_be_rational, which is Jäckel's LetsBeRational.cpp —
+#  the reference implementation jackal's accuracy is reported against.)
+py_vollib
+py_vollib_vectorized
+QuantLib
+matplotlib

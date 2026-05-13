@@ -1,0 +1,47 @@
+[package]
+name = "jackal"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.94"
+description = "Vectorized Black-Scholes implied-volatility solver."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/RyanJamesStewart/jackal"
+keywords = ["finance", "options", "implied-volatility", "simd", "black-scholes"]
+categories = ["finance", "mathematics"]
+readme = "README.md"
+exclude = ["bench/python/*", "scripts/*", "/.github"]
+
+[lib]
+# The Python wrapper builds as a cdylib only under the `python` feature.
+crate-type = ["rlib", "cdylib"]
+
+[features]
+default = []
+# PyO3 bindings (one module, `python/jackal_py.rs`); built via maturin.
+python = ["dep:pyo3"]
+
+[dependencies]
+# Runtime: zero dependencies. `std::simd` is nightly-only (`#![feature(portable_simd)]`).
+pyo3 = { version = "0.22", features = ["extension-module"], optional = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", default-features = false }
+proptest = "1"
+
+[[bench]]
+name = "iv"
+harness = false
+
+[[bin]]
+name = "bench"
+path = "bench/main.rs"
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+lto = "thin"
+
+[profile.bench]
+opt-level = 3
+codegen-units = 1
+lto = "thin"
