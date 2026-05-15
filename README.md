@@ -175,15 +175,21 @@ cargo test reference_table -- --nocapture
 
 ## Python
 
-A PyO3 wrapper (`python/jackal_py.rs`, ~50 lines) builds with `maturin`:
+A PyO3 wrapper (`python/jackal_py.rs`, ~50 lines) is published on PyPI as `voltic` (the name `jackal` was taken):
+
+```sh
+pip install voltic
+python -c "import voltic; print(voltic.implied_vol([100.0],[100.0],[1.0],[0.02],[12.82158],['c']))"
+```
+
+To build it from source:
 
 ```sh
 rustup override set nightly      # in this directory; the core uses std::simd
 maturin develop --release        # uses the `python` feature
-python -c "import jackal; print(jackal.implied_vol([100.0],[100.0],[1.0],[0.02],[12.82158],['c']))"
 ```
 
-It exposes the one function. It exists as a signal that the kernel ships as a Python extension if you want it; not because the repo expects `pip install` traffic.
+It exposes the one function. The wrapper is list-based for portability; a real release would take `&[f64]` views via `numpy::PyReadonlyArray1`.
 
 ## License
 

@@ -56,7 +56,7 @@ fn implied_vol_py(
 }
 
 #[pymodule]
-fn jackal(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn voltic(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(implied_vol_py, m)?)?;
     // touch PyList so the import is not flagged unused on older pyo3
     let _ = std::any::type_name::<PyList>();
