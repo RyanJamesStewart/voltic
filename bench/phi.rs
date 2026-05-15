@@ -1,6 +1,6 @@
 #![allow(dead_code, clippy::excessive_precision)]
 //! The cumulative-normal kernel sub-benchmark: for each Φ(x) approximation
-//! jackal implements, measure (a) max absolute error against a high-precision
+//! voltic implements, measure (a) max absolute error against a high-precision
 //! reference and (b) throughput (ns per call, single core). Emitted as a CSV
 //! (`kernel,max_abs_error,ns_per_call,options_per_sec`) consumed by
 //! `scripts/plot_phi.py`.
@@ -10,7 +10,7 @@
 //! arbitrary-precision Φ). "Max abs error" is the worst |Φ̂(x) − Φ_ref(x)| over
 //! those points — a fixed, reproducible measure, not a moving target.
 
-use jackal::norm;
+use voltic::norm;
 use std::simd::prelude::*;
 use std::time::Instant;
 

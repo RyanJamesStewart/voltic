@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Plot the cumulative-normal kernel frontier: absolute error vs throughput for
-the three Φ(x) approximations jackal implements (Abramowitz-Stegun 26.2.17,
-Hart 5666, West 2009, Cody 1969) — and circle the one jackal uses.
+the three Φ(x) approximations voltic implements (Abramowitz-Stegun 26.2.17,
+Hart 5666, West 2009, Cody 1969) — and circle the one voltic uses.
 
 Input: a CSV produced by the `bench` binary's `--phi-csv <path>` mode, with
 columns `kernel,max_abs_error,max_rel_error,ns_per_call,options_per_sec`. (The Rust side does
@@ -59,7 +59,7 @@ for name, err, ns, _ in rows:  # err = max relative error
     if name == CHOSEN:
         ax.scatter(ns, err, s=380, facecolors="none", edgecolors="#d62728", linewidths=2.4, zorder=4)
         ax.annotate(
-            "← jackal uses this:\n~8e-9 rel. error — far below the\n~1e-6 IV conditioning floor —\nat the lowest cost of the three\naccurate kernels. Cody buys ~50×\nbetter rel. error the problem\ncan't use; West is a slower\nnear-clone; AS's ~1e-2 deep-wing\nrel. error is too coarse.",
+            "← voltic uses this:\n~8e-9 rel. error — far below the\n~1e-6 IV conditioning floor —\nat the lowest cost of the three\naccurate kernels. Cody buys ~50×\nbetter rel. error the problem\ncan't use; West is a slower\nnear-clone; AS's ~1e-2 deep-wing\nrel. error is too coarse.",
             (ns, err),
             textcoords="offset points",
             xytext=(14, -78),

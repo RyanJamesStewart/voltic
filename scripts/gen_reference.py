@@ -7,7 +7,7 @@ script samples a spread of options across the moneyness bands (using the same
 distribution shape as `bench/data.rs`, a small N), prices each one with the
 reference Black-Scholes, then asks `py_vollib` for the IV back — and writes
 `spot,strike,tte,rate,price,kind,vol_py_vollib`. The Rust test
-`tests/properties.rs::reference_table` reads it and checks jackal agrees to
+`tests/properties.rs::reference_table` reads it and checks voltic agrees to
 ~1e-9 in vol space across the well-conditioned points (looser, ~1e-6, for the
 deep-OTM-near-expiry points it does solve).
 

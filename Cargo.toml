@@ -1,11 +1,11 @@
 [package]
-name = "jackal"
+name = "voltic"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.94"
 description = "Vectorized Black-Scholes implied-volatility solver."
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/RyanJamesStewart/jackal"
+repository = "https://github.com/RyanJamesStewart/voltic"
 keywords = ["finance", "options", "implied-volatility", "simd", "black-scholes"]
 categories = ["finance", "mathematics"]
 readme = "README.md"
@@ -17,7 +17,7 @@ crate-type = ["rlib", "cdylib"]
 
 [features]
 default = []
-# PyO3 bindings (one module, `python/jackal_py.rs`); built via maturin.
+# PyO3 bindings (one module, `python/voltic_py.rs`); built via maturin.
 python = ["dep:pyo3"]
 
 [dependencies]

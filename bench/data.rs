@@ -1,7 +1,7 @@
 #![allow(dead_code)] // shared module included into multiple bench targets; each uses a subset
 //! The synthetic benchmark dataset — one persisted generator, one seed.
 //!
-//! Every implementation in the benchmark (jackal scalar/vectorized, py_vollib,
+//! Every implementation in the benchmark (voltic scalar/vectorized, py_vollib,
 //! py_vollib_vectorized, QuantLib, the naive-Rust-scalar baseline) runs against
 //! *this* dataset. A skeptic can re-run with byte-identical inputs by re-running
 //! the generator with [`SEED`].
@@ -34,7 +34,7 @@
 //! no external dep, byte-reproducible). The dataset is `N` options; the
 //! benchmark uses `N = `[`DEFAULT_N`].
 
-use jackal::OptionKind;
+use voltic::OptionKind;
 
 /// The one seed. Change this and the dataset changes; the README quotes it.
 pub const SEED: u64 = 0x_5EED_BEEF_CAFE_F00D;
@@ -128,7 +128,7 @@ fn intrinsic(s: f64, k: f64, t: f64, r: f64, kind: OptionKind) -> f64 {
 }
 
 /// Generate the dataset of `n` options from [`SEED`]. The `price` column is
-/// computed by `jackal::bs_price`, so every row is exactly consistent with its
+/// computed by `voltic::bs_price`, so every row is exactly consistent with its
 /// `sigma_true` — the accuracy a solver is measured against is "recover the σ
 /// that produced this price", the right ground truth. Draws whose premium is
 /// below the recoverability floor are resampled (see the module docs).
@@ -156,7 +156,7 @@ pub fn generate(n: usize) -> Dataset {
         };
         // Compute the premium for *this* draw and accept only if it clears the
         // recoverability floor; otherwise skip (the RNG has already advanced).
-        let p = jackal::bs_price(&[s], &[k], &[t], &[r], &[v], &[kd])[0];
+        let p = voltic::bs_price(&[s], &[k], &[t], &[r], &[v], &[kd])[0];
         if !p.is_finite() || (p - intrinsic(s, k, t, r, kd)) <= RECOVERABILITY_FLOOR_FRAC * s {
             continue;
         }
@@ -168,7 +168,7 @@ pub fn generate(n: usize) -> Dataset {
         kind.push(kd);
         i += 1;
     }
-    let price = jackal::bs_price(&spot, &strike, &tte, &rate, &sigma_true, &kind);
+    let price = voltic::bs_price(&spot, &strike, &tte, &rate, &sigma_true, &kind);
     Dataset {
         spot,
         strike,

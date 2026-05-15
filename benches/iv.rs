@@ -15,9 +15,9 @@ fn iv_bench(c: &mut Criterion) {
     for &n in &[10_000usize, 100_000, 1_000_000] {
         let ds = data::generate(n);
         group.throughput(Throughput::Elements(n as u64));
-        group.bench_with_input(BenchmarkId::new("jackal_vectorized", n), &ds, |b, ds| {
+        group.bench_with_input(BenchmarkId::new("voltic_vectorized", n), &ds, |b, ds| {
             b.iter(|| {
-                let r = jackal::implied_vol(
+                let r = voltic::implied_vol(
                     black_box(&ds.spot),
                     black_box(&ds.strike),
                     black_box(&ds.tte),

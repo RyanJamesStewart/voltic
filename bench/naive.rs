@@ -2,11 +2,11 @@
 //! The "naive pure-Rust scalar Newton" baseline for the benchmark.
 //!
 //! This isolates *what SIMD bought* from *what Rust bought over Python*: it is
-//! the same algorithm jackal uses (rational guess → Newton) but written one
+//! the same algorithm voltic uses (rational guess → Newton) but written one
 //! option at a time with no vectorization — the implementation a competent
 //! engineer would write in an afternoon without reaching for `std::simd`.
 //! It uses the same West-2009 cumulative normal (scalar form) so the only
-//! difference from jackal is the vectorization.
+//! difference from voltic is the vectorization.
 
 const INV_SQRT_2PI: f64 = 0.398_942_280_401_432_68;
 const SQRT_2PI: f64 = 2.506_628_274_631_000_5;
@@ -92,7 +92,7 @@ fn corrado_miller(s: f64, k: f64, t: f64, r: f64, price: f64, is_call: bool) -> 
     g.clamp(0.01, 5.0)
 }
 
-/// Implied vol of one option; `NaN` on the same conditions jackal NaNs.
+/// Implied vol of one option; `NaN` on the same conditions voltic NaNs.
 pub fn implied_vol_one(s: f64, k: f64, t: f64, r: f64, price: f64, is_call: bool) -> f64 {
     if !(s.is_finite() && k.is_finite() && t.is_finite() && r.is_finite() && price.is_finite()) {
         return f64::NAN;

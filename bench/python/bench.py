@@ -9,7 +9,7 @@ accuracy of:
   * py_vollib_vectorized     — the numpy-vectorized variant of the same
   * QuantLib (Python binding)— QuantLib's `blackFormulaImpliedStdDevChambers`
                                / `BlackScholesCalculator` IV
-  * (jackal's numbers come from the Rust harness; this script does not call it)
+  * (voltic's numbers come from the Rust harness; this script does not call it)
 
 Methodology, matching the Rust side:
   * same workload (the CSV);
@@ -176,4 +176,4 @@ try:
 except ImportError:
     print("\nQuantLib not installed — skipping (pip install QuantLib)")
 
-print("\n(jackal's rows come from `cargo run --release --bin bench`; this harness covers the 4 comparison tools only.)")
+print("\n(voltic's rows come from `cargo run --release --bin bench`; this harness covers the 4 comparison tools only.)")

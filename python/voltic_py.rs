@@ -5,7 +5,7 @@
 //!
 //! Exposes one function, `implied_vol`, taking NumPy-or-list arrays of
 //! (spot, strike, tte, rate, price) and a bytes/str of `'c'`/`'p'` per option;
-//! returns a list of f64 (NaN where jackal returns NaN). Kept deliberately
+//! returns a list of f64 (NaN where voltic returns NaN). Kept deliberately
 //! list-based (no `numpy` build dep) — a real release would take `&[f64]`
 //! views via `numpy::PyReadonlyArray1`; this is the minimal viable wrapper.
 

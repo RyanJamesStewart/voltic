@@ -1,4 +1,4 @@
-//! `jackal` — Black-Scholes implied volatility, one operation, vectorized.
+//! `voltic` — Black-Scholes implied volatility, one operation, vectorized.
 //!
 //! Given (spot, strike, time-to-expiry, risk-free rate, option price, call/put),
 //! [`implied_vol`] returns the Black-Scholes implied volatility, computed over a
@@ -13,7 +13,7 @@
 //!    less, not doing it faster. For the genuinely hard region — deep OTM near
 //!    expiry, where rational-guess-plus-Newton can stall — the answer is the
 //!    rational-cubic-spline method of Jäckel, *"Let Be Rational"* (Wilmott,
-//!    2015); `jackal` does not implement that and returns `NaN` if Newton has
+//!    2015); `voltic` does not implement that and returns `NaN` if Newton has
 //!    not converged within [`MAX_ITERS`] (see the README "Limitations").
 //!
 //! 2. **Lane-packed Newton with masked convergence** — the batch iterates
@@ -28,7 +28,7 @@
 //!    conditioning floor, and the fastest of the three accurate kernels).
 //!
 //! ```
-//! use jackal::{implied_vol, OptionKind};
+//! use voltic::{implied_vol, OptionKind};
 //! // 30%-vol ATM call, S = K = 100, 1y, r = 2%  → priced at ~12.8216
 //! let iv = implied_vol(&[100.0], &[100.0], &[1.0], &[0.02], &[12.821_58], &[OptionKind::Call]);
 //! assert!((iv[0] - 0.30).abs() < 1e-4);
@@ -39,10 +39,10 @@
 pub mod norm;
 
 // The Python extension module (PyO3 + maturin). One file, behind a feature
-// flag; see `python/jackal_py.rs` and `pyproject.toml`.
+// flag; see `python/voltic_py.rs` and `pyproject.toml`.
 #[cfg(feature = "python")]
-#[path = "../python/jackal_py.rs"]
-mod jackal_py;
+#[path = "../python/voltic_py.rs"]
+mod voltic_py;
 
 use std::simd::prelude::*;
 use std::simd::StdFloat;
@@ -56,7 +56,7 @@ type M = Mask<i64, LANES>;
 /// Newton stopping tolerance, in vol units (absolute change between iterates).
 const TOL: f64 = 1e-12;
 /// Hard cap on Newton iterations. A well-conditioned input converges in 1–3;
-/// hitting this means the input is in the pathological region jackal does not
+/// hitting this means the input is in the pathological region voltic does not
 /// solve (deep OTM near expiry) — that lane returns `NaN`.
 pub const MAX_ITERS: usize = 32;
 /// Volatility bounds. A solved vol outside `[VOL_MIN, VOL_MAX]` is reported as
@@ -265,7 +265,7 @@ fn screen(s: V, k: V, t: V, r: V, price: V, is_call: M) -> M {
 /// `i` is the implied vol of the option `(spot[i], strike[i], tte[i], rate[i],
 /// price[i], kind[i])` — or `NaN` if that input has no Black-Scholes implied
 /// vol in `[`[`VOL_MIN`]`, `[`VOL_MAX`]`]` (premium below intrinsic, non-finite
-/// input, `tte ≤ 0`, or the pathological deep-OTM-near-expiry region jackal
+/// input, `tte ≤ 0`, or the pathological deep-OTM-near-expiry region voltic
 /// does not solve; see the README "Limitations").
 ///
 /// # Panics
@@ -564,7 +564,7 @@ mod tests {
     #[test]
     fn deep_otm_short_expiry_is_handled_or_nan() {
         // S=100, K=160, T=1 week, σ=15% → premium is ~1e-6, deep in the
-        // conditioning-floor region. Either jackal solves it within ~1e-6, or
+        // conditioning-floor region. Either voltic solves it within ~1e-6, or
         // it returns NaN — both acceptable; what's not acceptable is a wrong
         // finite answer.
         let s = [100.0];

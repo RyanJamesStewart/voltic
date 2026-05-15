@@ -6,17 +6,17 @@
 //! `cargo test` is brittle, so instead the benchmark/CI step on Crucible runs
 //! `scripts/gen_reference.py` once to emit `tests/reference_pairs.csv`
 //! (`spot,strike,tte,rate,price,kind,vol_py_vollib`) and [`reference_table`]
-//! below checks jackal against it. The round-trip and parity proptests need no
+//! below checks voltic against it. The round-trip and parity proptests need no
 //! Python and run on every `cargo test`.
 
-use jackal::{bs_price, implied_vol, OptionKind};
+use voltic::{bs_price, implied_vol, OptionKind};
 use proptest::prelude::*;
 
 /// A strategy producing a *well-conditioned* option: parameters in plausible
 /// ranges, then **filtered** to those whose Black-Scholes premium is
 /// meaningfully above intrinsic (time value > 1e-6 · spot) — i.e. an IV that
 /// the conditioning floor can actually invert. The deep-OTM-near-expiry corner
-/// (where the premium underflows below that floor and jackal returns `NaN` by
+/// (where the premium underflows below that floor and voltic returns `NaN` by
 /// design) is *excluded here on purpose*; it's covered by the named edge-case
 /// tests in `src/lib.rs`, not by the round-trip property.
 fn well_conditioned() -> impl Strategy<Value = (f64, f64, f64, f64, f64, OptionKind)> {
@@ -50,7 +50,7 @@ proptest! {
     #![proptest_config(ProptestConfig { cases: 2000, ..ProptestConfig::default() })]
 
     /// Solve the IV of a price that was itself produced by Black-Scholes from a
-    /// known σ; jackal must recover that σ to high accuracy.
+    /// known σ; voltic must recover that σ to high accuracy.
     #[test]
     fn round_trip_recovers_sigma((s, k, t, r, v, kind) in well_conditioned()) {
         let price = bs_price(&[s], &[k], &[t], &[r], &[v], &[kind]);
@@ -101,7 +101,7 @@ proptest! {
     }
 }
 
-/// Check jackal against a `py_vollib`-generated reference table if present.
+/// Check voltic against a `py_vollib`-generated reference table if present.
 /// Run `python scripts/gen_reference.py` (needs `py_vollib`) to (re)generate
 /// `tests/reference_pairs.csv`. When the file is absent (e.g. local dev without
 /// Python) the test is a no-op with a printed note — the round-trip proptests
@@ -137,19 +137,19 @@ fn reference_table() {
         let got = implied_vol(&[s], &[k], &[t], &[r], &[price], &[kind])[0];
         n += 1;
         if got.is_nan() {
-            // py_vollib produced a vol; jackal NaN'd. That's a real
+            // py_vollib produced a vol; voltic NaN'd. That's a real
             // disagreement on a point py_vollib could solve — fail unless it's
             // the deep-OTM-near-expiry region (which we *document* as NaN).
             n_nan += 1;
             let near_expiry = t < 14.0 / 365.0;
             let deep = !(0.7..=1.4).contains(&(s / k));
-            assert!(near_expiry && deep, "jackal NaN'd a point py_vollib solved and that point is not in the documented unsupported region: S={s} K={k} T={t} r={r} price={price} {kind:?} (py_vollib σ={vol_ref})");
+            assert!(near_expiry && deep, "voltic NaN'd a point py_vollib solved and that point is not in the documented unsupported region: S={s} K={k} T={t} r={r} price={price} {kind:?} (py_vollib σ={vol_ref})");
             continue;
         }
         max_abs = max_abs.max((got - vol_ref).abs());
     }
-    eprintln!("reference comparison: {n} points, {n_nan} NaN'd (documented region), max |σ_jackal − σ_py_vollib| = {max_abs:.3e}");
-    // py_vollib wraps Jäckel's reference, machine-precision; jackal Newton-to-
+    eprintln!("reference comparison: {n} points, {n_nan} NaN'd (documented region), max |σ_voltic − σ_py_vollib| = {max_abs:.3e}");
+    // py_vollib wraps Jäckel's reference, machine-precision; voltic Newton-to-
     // tol against it should agree to ~1e-9 in vol space across well-conditioned
     // inputs (looser, ~1e-6, for the deep-OTM-near-expiry points it *does*
     // solve). Anything claiming tighter than ~1e-10 would be a harness bug.

@@ -1,5 +1,5 @@
 //! `cargo run --release --bin bench` — generates the synthetic dataset, runs
-//! the Rust implementations (jackal vectorized, jackal scalar entry point, and
+//! the Rust implementations (voltic vectorized, voltic scalar entry point, and
 //! the naive scalar-Newton baseline), and prints the benchmark table:
 //! throughput (ns/option, options/sec), accuracy vs the σ that produced each
 //! price (overall + stratified by moneyness band), and LOC per implementation.
@@ -24,7 +24,7 @@ mod naive;
 #[path = "phi.rs"]
 mod phi;
 
-use jackal::OptionKind;
+use voltic::OptionKind;
 use std::time::Instant;
 
 const REPEATS: usize = 7;
@@ -108,22 +108,22 @@ fn main() {
     }
     let kb = kinds_as_bool(&ds.kind);
 
-    // --- jackal, vectorized (the headline) ---------------------------------
-    let jackal_vec =
-        jackal::implied_vol(&ds.spot, &ds.strike, &ds.tte, &ds.rate, &ds.price, &ds.kind);
-    let jackal_vec_ns = time_ns_per_option(n, || {
-        let r = jackal::implied_vol(&ds.spot, &ds.strike, &ds.tte, &ds.rate, &ds.price, &ds.kind);
+    // --- voltic, vectorized (the headline) ---------------------------------
+    let voltic_vec =
+        voltic::implied_vol(&ds.spot, &ds.strike, &ds.tte, &ds.rate, &ds.price, &ds.kind);
+    let voltic_vec_ns = time_ns_per_option(n, || {
+        let r = voltic::implied_vol(&ds.spot, &ds.strike, &ds.tte, &ds.rate, &ds.price, &ds.kind);
         r.len()
     });
 
-    // --- jackal via the single-option entry point, in a loop ---------------
-    // (the "scalar" column for jackal — it's the same SIMD code, just one
-    //  option at a time, so 7 of 8 lanes are wasted; the gap to `jackal_vec`
+    // --- voltic via the single-option entry point, in a loop ---------------
+    // (the "scalar" column for voltic — it's the same SIMD code, just one
+    //  option at a time, so 7 of 8 lanes are wasted; the gap to `voltic_vec`
     //  is the per-call overhead, not a different algorithm. Reported as such.)
-    let jackal_scalar_ns = time_ns_per_option(n, || {
+    let voltic_scalar_ns = time_ns_per_option(n, || {
         let mut acc = 0usize;
         for i in 0..n {
-            let v = jackal::implied_vol_one(
+            let v = voltic::implied_vol_one(
                 ds.spot[i],
                 ds.strike[i],
                 ds.tte[i],
@@ -145,22 +145,22 @@ fn main() {
     // --- report ------------------------------------------------------------
     let ops = |ns: f64| 1e9 / ns;
     println!(
-        "\n=== jackal benchmark — {n} synthetic options, seed {:#018x} ===\n",
+        "\n=== voltic benchmark — {n} synthetic options, seed {:#018x} ===\n",
         data::SEED
     );
     println!("Rust implementations (single-threaded, median of {REPEATS} passes after warmup):");
     println!("{:<28} {:>14} {:>18}", "impl", "ns/option", "options/sec");
     println!(
         "{:<28} {:>14.1} {:>18.3e}",
-        "jackal (vectorized, f64x8)",
-        jackal_vec_ns,
-        ops(jackal_vec_ns)
+        "voltic (vectorized, f64x8)",
+        voltic_vec_ns,
+        ops(voltic_vec_ns)
     );
     println!(
         "{:<28} {:>14.1} {:>18.3e}",
-        "jackal (scalar entry pt)",
-        jackal_scalar_ns,
-        ops(jackal_scalar_ns)
+        "voltic (scalar entry pt)",
+        voltic_scalar_ns,
+        ops(voltic_scalar_ns)
     );
     println!(
         "{:<28} {:>14.1} {:>18.3e}",
@@ -170,10 +170,10 @@ fn main() {
     );
 
     println!("\nAccuracy — max |solved σ − σ_true| (the σ that produced each price):");
-    let overall_j = accuracy(&jackal_vec, &ds.sigma_true, &ds, None);
+    let overall_j = accuracy(&voltic_vec, &ds.sigma_true, &ds, None);
     let overall_n = accuracy(&naive_solved, &ds.sigma_true, &ds, None);
     println!(
-        "  jackal  overall: max abs err {:.3e}   ({} of {} returned NaN)",
+        "  voltic  overall: max abs err {:.3e}   ({} of {} returned NaN)",
         overall_j.max_abs, overall_j.n_nan, overall_j.n
     );
     println!(
@@ -185,9 +185,9 @@ fn main() {
         ("near ATM (0.95–1.05)", data::Band::NearAtm),
         ("deep ITM (S/K > 1.3)", data::Band::DeepItm),
     ] {
-        let a = accuracy(&jackal_vec, &ds.sigma_true, &ds, Some(band));
+        let a = accuracy(&voltic_vec, &ds.sigma_true, &ds, Some(band));
         println!(
-            "    jackal  {label:<22}: max abs err {:.3e}   ({} of {} NaN)",
+            "    voltic  {label:<22}: max abs err {:.3e}   ({} of {} NaN)",
             a.max_abs, a.n_nan, a.n
         );
     }
@@ -200,12 +200,12 @@ fn main() {
     }
 
     println!("\nLOC (cloc-style, src + this harness):");
-    println!("  jackal core (src/lib.rs + src/norm.rs):  see `tokei src/`");
+    println!("  voltic core (src/lib.rs + src/norm.rs):  see `tokei src/`");
     println!("  naive baseline (bench/naive.rs):          see `tokei bench/naive.rs`");
 
-    // Sanity gate: nothing in jackal should be more accurate than the
+    // Sanity gate: nothing in voltic should be more accurate than the
     // reference round-trip allows; and nothing absurd in throughput.
     if overall_j.max_abs > 0.0 && overall_j.max_abs < 1e-12 {
-        eprintln!("note: jackal max abs vol error {:.3e} is below the ~1e-10 conditioning floor — fine for a round-trip dataset (price was computed from σ_true to full f64), but accuracy *vs py_vollib* must still be reported and will be looser.", overall_j.max_abs);
+        eprintln!("note: voltic max abs vol error {:.3e} is below the ~1e-10 conditioning floor — fine for a round-trip dataset (price was computed from σ_true to full f64), but accuracy *vs py_vollib* must still be reported and will be looser.", overall_j.max_abs);
     }
 }
