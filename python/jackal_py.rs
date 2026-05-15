@@ -12,7 +12,7 @@
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 
-use jackal::OptionKind;
+use crate::OptionKind;
 
 /// `implied_vol(spot, strike, tte, rate, price, kinds) -> list[float]`
 ///
@@ -50,7 +50,7 @@ fn implied_vol_py(
             }
         })
         .collect();
-    Ok(jackal::implied_vol(
+    Ok(crate::implied_vol(
         &spot, &strike, &tte, &rate, &price, &kind,
     ))
 }
