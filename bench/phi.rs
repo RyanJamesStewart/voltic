@@ -10,9 +10,9 @@
 //! arbitrary-precision Φ). "Max abs error" is the worst |Φ̂(x) − Φ_ref(x)| over
 //! those points — a fixed, reproducible measure, not a moving target.
 
-use voltic::norm;
 use std::simd::prelude::*;
 use std::time::Instant;
+use voltic::norm;
 
 /// (x, Φ(x)) — Φ correct to f64 precision (offline arbitrary-precision eval).
 #[rustfmt::skip]

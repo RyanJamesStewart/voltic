@@ -9,8 +9,8 @@
 //! below checks voltic against it. The round-trip and parity proptests need no
 //! Python and run on every `cargo test`.
 
-use voltic::{bs_price, implied_vol, OptionKind};
 use proptest::prelude::*;
+use voltic::{bs_price, implied_vol, OptionKind};
 
 /// A strategy producing a *well-conditioned* option: parameters in plausible
 /// ranges, then **filtered** to those whose Black-Scholes premium is

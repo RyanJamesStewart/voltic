@@ -24,8 +24,8 @@ mod naive;
 #[path = "phi.rs"]
 mod phi;
 
-use voltic::OptionKind;
 use std::time::Instant;
+use voltic::OptionKind;
 
 const REPEATS: usize = 7;
 
