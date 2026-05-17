@@ -136,6 +136,16 @@ fn main() {
         acc
     });
 
+    // --- voltic explicit (Schadner inverse-Gaussian, vectorized) -----------
+    let explicit_vec =
+        voltic::implied_vol_explicit(&ds.spot, &ds.strike, &ds.tte, &ds.rate, &ds.price, &ds.kind);
+    let explicit_vec_ns = time_ns_per_option(n, || {
+        let r = voltic::implied_vol_explicit(
+            &ds.spot, &ds.strike, &ds.tte, &ds.rate, &ds.price, &ds.kind,
+        );
+        r.len()
+    });
+
     // --- naive pure-Rust scalar Newton -------------------------------------
     let naive_solved = naive::implied_vol(&ds.spot, &ds.strike, &ds.tte, &ds.rate, &ds.price, &kb);
     let naive_ns = time_ns_per_option(n, || {
@@ -164,6 +174,12 @@ fn main() {
     );
     println!(
         "{:<28} {:>14.1} {:>18.3e}",
+        "voltic explicit (Schadner)",
+        explicit_vec_ns,
+        ops(explicit_vec_ns)
+    );
+    println!(
+        "{:<28} {:>14.1} {:>18.3e}",
         "naive Rust scalar Newton",
         naive_ns,
         ops(naive_ns)
@@ -171,13 +187,18 @@ fn main() {
 
     println!("\nAccuracy — max |solved σ − σ_true| (the σ that produced each price):");
     let overall_j = accuracy(&voltic_vec, &ds.sigma_true, &ds, None);
+    let overall_e = accuracy(&explicit_vec, &ds.sigma_true, &ds, None);
     let overall_n = accuracy(&naive_solved, &ds.sigma_true, &ds, None);
     println!(
-        "  voltic  overall: max abs err {:.3e}   ({} of {} returned NaN)",
+        "  voltic   overall: max abs err {:.3e}   ({} of {} returned NaN)",
         overall_j.max_abs, overall_j.n_nan, overall_j.n
     );
     println!(
-        "  naive   overall: max abs err {:.3e}   ({} of {} returned NaN)",
+        "  explicit overall: max abs err {:.3e}   ({} of {} returned NaN)",
+        overall_e.max_abs, overall_e.n_nan, overall_e.n
+    );
+    println!(
+        "  naive    overall: max abs err {:.3e}   ({} of {} returned NaN)",
         overall_n.max_abs, overall_n.n_nan, overall_n.n
     );
     for (label, band) in [
@@ -186,11 +207,31 @@ fn main() {
         ("deep ITM (S/K > 1.3)", data::Band::DeepItm),
     ] {
         let a = accuracy(&voltic_vec, &ds.sigma_true, &ds, Some(band));
+        let e = accuracy(&explicit_vec, &ds.sigma_true, &ds, Some(band));
         println!(
-            "    voltic  {label:<22}: max abs err {:.3e}   ({} of {} NaN)",
+            "    voltic   {label:<22}: max abs err {:.3e}   ({} of {} NaN)",
             a.max_abs, a.n_nan, a.n
         );
+        println!(
+            "    explicit {label:<22}: max abs err {:.3e}   ({} of {} NaN)",
+            e.max_abs, e.n_nan, e.n
+        );
     }
+
+    // Direct vs explicit: the cross-method agreement on the points both solve
+    // (this is the head-to-head the README reports).
+    let mut cross_max = 0.0_f64;
+    let mut cross_n = 0usize;
+    for i in 0..n {
+        if voltic_vec[i].is_nan() || explicit_vec[i].is_nan() {
+            continue;
+        }
+        cross_max = cross_max.max((voltic_vec[i] - explicit_vec[i]).abs());
+        cross_n += 1;
+    }
+    println!(
+        "  direct vs explicit: max |σ_direct − σ_explicit| = {cross_max:.3e} over {cross_n} jointly-solved options"
+    );
 
     // --- cumulative-normal kernel frontier ---------------------------------
     let _ = phi::report();

@@ -37,6 +37,9 @@
 #![allow(clippy::needless_range_loop)]
 
 pub mod norm;
+pub mod schadner;
+
+pub use schadner::implied_vol_explicit;
 
 // The Python extension module (PyO3 + maturin). One file, behind a feature
 // flag; see `python/voltic_py.rs` and `pyproject.toml`.
@@ -49,9 +52,9 @@ use std::simd::StdFloat;
 
 /// SIMD width: 8 × f64 = one AVX-512 register (and lowers to 2×256 / 4×128 on
 /// narrower targets via `std::simd`'s portable lowering).
-const LANES: usize = 8;
-type V = Simd<f64, LANES>;
-type M = Mask<i64, LANES>;
+pub(crate) const LANES: usize = 8;
+pub(crate) type V = Simd<f64, LANES>;
+pub(crate) type M = Mask<i64, LANES>;
 
 /// Newton stopping tolerance, in vol units (absolute change between iterates).
 const TOL: f64 = 1e-12;
@@ -88,7 +91,7 @@ impl OptionKind {
 /// `s > 0`, `k > 0`; degenerate inputs are screened by the caller in
 /// [`implied_vol`].
 #[inline]
-fn bs_price_vega(s: V, k: V, t: V, r: V, sigma: V, is_call: M) -> (V, V) {
+pub(crate) fn bs_price_vega(s: V, k: V, t: V, r: V, sigma: V, is_call: M) -> (V, V) {
     let sqrt_t = t.sqrt();
     let vol_sqrt_t = sigma * sqrt_t;
     let df = (-r * t).exp(); // discount factor
@@ -119,7 +122,7 @@ fn bs_price_vega(s: V, k: V, t: V, r: V, sigma: V, is_call: M) -> (V, V) {
 /// approximation is out of its domain) and clamp the result into
 /// `[VOL_MIN, VOL_MAX]`; Newton repairs the rest.
 #[inline]
-fn initial_guess(s: V, k: V, t: V, r: V, price: V, is_call: M) -> V {
+pub(crate) fn initial_guess(s: V, k: V, t: V, r: V, price: V, is_call: M) -> V {
     let sqrt_t = t.sqrt();
     let two_pi_over_t = V::splat(2.0 * core::f64::consts::PI) / t;
     let kp = k * (-r * t).exp(); // discounted strike
@@ -241,7 +244,7 @@ fn solve_chunk(s: V, k: V, t: V, r: V, price: V, is_call: M, valid: M) -> V {
 /// intrinsic value (or above the trivial upper bound) — all of which have no
 /// solution and would otherwise drive Newton to garbage.
 #[inline]
-fn screen(s: V, k: V, t: V, r: V, price: V, is_call: M) -> M {
+pub(crate) fn screen(s: V, k: V, t: V, r: V, price: V, is_call: M) -> M {
     let finite = s.is_finite() & k.is_finite() & t.is_finite() & r.is_finite() & price.is_finite();
     let positive = s.simd_gt(V::splat(0.0)) & k.simd_gt(V::splat(0.0)) & t.simd_gt(V::splat(0.0));
     let df = (-r * t).exp();

@@ -324,6 +324,129 @@ pub fn phi_cody<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N> {
     res.simd_max(Simd::splat(0.0)).simd_min(Simd::splat(1.0))
 }
 
+// ---------------------------------------------------------------------------
+// Acklam 2003 — inverse cumulative normal Φ⁻¹(p), the probit (~1e-9), refined
+// to full f64 with two Halley steps against the Hart Φ above.
+// ---------------------------------------------------------------------------
+//
+// Peter Acklam, "An algorithm for computing the inverse normal cumulative
+// distribution function" (2003): a single low-order rational in the central
+// region `p ∈ [low, 1−low]` and a `√(−2 ln·)` rational in each tail, mirrored
+// by sign. Branch-free here: all three arms are evaluated and `select`ed on
+// the region mask, so a lane-packed batch never pays for one lane being in a
+// tail. The bare rational is ~1.15e-9 relative; two Halley correction steps
+// (using [`phi_hart`] for the residual and [`phi_pdf`] for the slope) take it
+// to ~1e-15, which is what the Schadner explicit solver needs for its
+// at-the-forward branch and its initial guess. Two steps (not one) mirror the
+// reference `ndtri` in Schadner's demo (`wol-fi/direct_vola`).
+#[allow(clippy::unreadable_literal, clippy::excessive_precision)]
+mod acklam {
+    pub const LOW: f64 = 0.02425; // central-region boundary (HIGH = 1 − LOW)
+    pub const A: [f64; 6] = [
+        -3.969683028665376e+01,
+        2.209460984245205e+02,
+        -2.759285104469687e+02,
+        1.383577518672690e+02,
+        -3.066479806614716e+01,
+        2.506628277459239e+00,
+    ];
+    pub const B: [f64; 5] = [
+        -5.447609879822406e+01,
+        1.615858368580409e+02,
+        -1.556989798598866e+02,
+        6.680131188771972e+01,
+        -1.328068155288572e+01,
+    ];
+    pub const C: [f64; 6] = [
+        -7.784894002430293e-03,
+        -3.223964580411365e-01,
+        -2.400758277161838e+00,
+        -2.549732539343734e+00,
+        4.374664141464968e+00,
+        2.938163982698783e+00,
+    ];
+    pub const D: [f64; 4] = [
+        7.784695709041462e-03,
+        3.224671290700398e-01,
+        2.445134137142996e+00,
+        3.754408661907416e+00,
+    ];
+}
+
+/// Inverse standard-normal CDF (probit) Φ⁻¹(p) for `p ∈ (0, 1)`. Branch-free;
+/// Acklam's rational refined by two Halley steps to ~1e-15. Outside `(0, 1)`
+/// the inputs are clamped to a tiny interior margin, so a caller that has
+/// already screened its probabilities never sees `±∞`.
+#[inline]
+pub fn phi_inv<const N: usize>(p_in: Simd<f64, N>) -> Simd<f64, N> {
+    // Clamp into the open interval so ln() of a tail arm is always finite even
+    // for a lane the caller will end up rejecting anyway.
+    let tiny = Simd::splat(1e-300);
+    let p = p_in
+        .simd_max(tiny)
+        .simd_min(Simd::splat(1.0) - Simd::splat(f64::EPSILON));
+
+    let a = &acklam::A;
+    let b = &acklam::B;
+    let c = &acklam::C;
+    let d = &acklam::D;
+
+    // Central arm: q = p − ½, r = q²,  x = poly_a(r)·q / poly_b(r).
+    let qc = p - Simd::splat(0.5);
+    let rc = qc * qc;
+    let num_c = ((((Simd::splat(a[0]) * rc + Simd::splat(a[1])) * rc + Simd::splat(a[2])) * rc
+        + Simd::splat(a[3]))
+        * rc
+        + Simd::splat(a[4]))
+        * rc
+        + Simd::splat(a[5]);
+    let den_c = ((((Simd::splat(b[0]) * rc + Simd::splat(b[1])) * rc + Simd::splat(b[2])) * rc
+        + Simd::splat(b[3]))
+        * rc
+        + Simd::splat(b[4]))
+        * rc
+        + Simd::splat(1.0);
+    let x_central = num_c * qc / den_c;
+
+    // Tail arm, written for the lower tail; the upper tail is the negation with
+    // `1 − p` in place of `p`. Evaluate one shared rational on
+    // `q = √(−2 ln(min(p, 1−p)))` and flip its sign for the upper tail.
+    let lower = p.simd_lt(Simd::splat(acklam::LOW));
+    let p_tail = lower.select(p, Simd::splat(1.0) - p);
+    let qt = (Simd::splat(-2.0) * p_tail.ln()).sqrt();
+    let num_t = (((((Simd::splat(c[0]) * qt + Simd::splat(c[1])) * qt + Simd::splat(c[2])) * qt
+        + Simd::splat(c[3]))
+        * qt
+        + Simd::splat(c[4]))
+        * qt
+        + Simd::splat(c[5]))
+        * Simd::splat(1.0);
+    let den_t = (((Simd::splat(d[0]) * qt + Simd::splat(d[1])) * qt + Simd::splat(d[2])) * qt
+        + Simd::splat(d[3]))
+        * qt
+        + Simd::splat(1.0);
+    // Acklam's tail rational is already negative for a small probability; the
+    // upper tail is its negation (with `1 − p` fed through the shared arm).
+    let raw = num_t / den_t;
+    let x_tail = lower.select(raw, -raw);
+
+    let in_central = p.simd_ge(Simd::splat(acklam::LOW))
+        & p.simd_le(Simd::splat(1.0) - Simd::splat(acklam::LOW));
+    let mut x = in_central.select(x_central, x_tail);
+
+    // Two Halley steps on F(x) = Φ(x) − p, F'(x) = φ(x): with e = Φ(x) − p and
+    // u = e/φ(x),  x ← x − u / (1 + x·u/2). Lifts the ~1e-9 rational to ~1e-15.
+    // Two iterations (not one) to match the reference `ndtri` in Schadner's
+    // demo (`wol-fi/direct_vola`), so the explicit solver's probit arm is
+    // faithful to the method it is benchmarked against.
+    for _ in 0..2 {
+        let e = phi_hart(x) - p;
+        let u = e / phi_pdf(x);
+        x = x - u / (Simd::splat(1.0) + Simd::splat(0.5) * x * u);
+    }
+    x
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -385,6 +508,39 @@ mod tests {
             }
             let got = phi_as(f64x8::splat(x))[0];
             approx_eq(got, y, 1e-7);
+        }
+    }
+
+    #[test]
+    fn phi_inv_recovers_reference() {
+        // Φ⁻¹(Φ(x)) == x to ~1e-12 over the reference grid (the tails too).
+        for &(x, p) in REF {
+            if !(1e-12..=1.0 - 1e-12).contains(&p) {
+                continue; // outside the probit's representable interior
+            }
+            let got = phi_inv(f64x8::splat(p))[0];
+            approx_eq(got, x, 1e-10);
+        }
+    }
+
+    #[test]
+    fn phi_inv_is_inverse_of_phi() {
+        // Round-trip the other way: Φ(Φ⁻¹(p)) == p across the central + tail
+        // regions, including right at Acklam's region boundary.
+        for p in [
+            1e-9_f64,
+            1e-4,
+            0.02425,
+            0.05,
+            0.2,
+            0.5,
+            0.7,
+            0.97575,
+            0.9999,
+            1.0 - 1e-9,
+        ] {
+            let x = phi_inv(f64x8::splat(p))[0];
+            approx_eq(phi_hart(f64x8::splat(x))[0], p, 1e-12);
         }
     }
 

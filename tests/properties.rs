@@ -10,7 +10,7 @@
 //! Python and run on every `cargo test`.
 
 use proptest::prelude::*;
-use voltic::{bs_price, implied_vol, OptionKind};
+use voltic::{bs_price, implied_vol, implied_vol_explicit, OptionKind};
 
 /// A strategy producing a *well-conditioned* option: parameters in plausible
 /// ranges, then **filtered** to those whose Black-Scholes premium is
@@ -77,6 +77,21 @@ proptest! {
         let parity = cp[0] - pp[0];
         let theo = s - k * (-r * t).exp();
         prop_assert!((parity - theo).abs() < 1e-8 * (s + k).max(1.0), "parity {parity} vs {theo}");
+    }
+
+    /// The explicit (Schadner inverse-Gaussian) solver and the direct Newton
+    /// solver must agree on the recovered σ to the round-trip conditioning
+    /// floor: same price in, same vol out, two different inversions.
+    #[test]
+    fn explicit_agrees_with_direct((s, k, t, r, v, kind) in well_conditioned()) {
+        let price = bs_price(&[s], &[k], &[t], &[r], &[v], &[kind]);
+        let direct = implied_vol(&[s], &[k], &[t], &[r], &price, &[kind]);
+        let explicit = implied_vol_explicit(&[s], &[k], &[t], &[r], &price, &[kind]);
+        prop_assert!(!explicit[0].is_nan(), "explicit NaN'd well-conditioned S={s} K={k} T={t} r={r} v={v} {kind:?} price={}", price[0]);
+        prop_assert!((explicit[0] - v).abs() < 1e-5, "explicit S={s} K={k} T={t} r={r} v={v} {kind:?}: {} (Δ={})", explicit[0], (explicit[0]-v).abs());
+        // Both solve the same well-posed point; cross-method agreement is the
+        // conditioning floor, not machine epsilon.
+        prop_assert!((explicit[0] - direct[0]).abs() < 1e-5, "direct {} vs explicit {}", direct[0], explicit[0]);
     }
 
     /// A batch of arbitrary well-conditioned options solves identically whether
@@ -156,5 +171,55 @@ fn reference_table() {
     assert!(
         max_abs < 1e-6,
         "max abs vol error vs py_vollib = {max_abs:.3e} — too large; harness or algorithm bug"
+    );
+}
+
+/// Same py_vollib reference table, but for the explicit Schadner solver. Pins
+/// the accuracy-vs-Jäckel number the README quotes for the explicit method.
+/// No-op (with a note) when the CSV is absent, exactly like [`reference_table`].
+#[test]
+fn reference_table_explicit() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/reference_pairs.csv");
+    let Ok(text) = std::fs::read_to_string(path) else {
+        eprintln!("reference_pairs.csv not present — skipping py_vollib comparison for the explicit solver");
+        return;
+    };
+    let mut max_abs = 0.0_f64;
+    let mut n = 0;
+    let mut n_nan = 0;
+    for (lineno, line) in text.lines().enumerate() {
+        if lineno == 0 || line.trim().is_empty() {
+            continue; // header
+        }
+        let f: Vec<&str> = line.split(',').collect();
+        assert!(f.len() >= 7, "bad reference line {lineno}: {line}");
+        let s: f64 = f[0].parse().unwrap();
+        let k: f64 = f[1].parse().unwrap();
+        let t: f64 = f[2].parse().unwrap();
+        let r: f64 = f[3].parse().unwrap();
+        let price: f64 = f[4].parse().unwrap();
+        let kind = match f[5].trim() {
+            "c" => OptionKind::Call,
+            "p" => OptionKind::Put,
+            other => panic!("bad kind {other:?} on line {lineno}"),
+        };
+        let vol_ref: f64 = f[6].parse().unwrap();
+        let got = implied_vol_explicit(&[s], &[k], &[t], &[r], &[price], &[kind])[0];
+        n += 1;
+        if got.is_nan() {
+            // Same contract as the direct solver: a NaN is only acceptable in
+            // the documented deep-OTM-near-expiry region.
+            n_nan += 1;
+            let near_expiry = t < 14.0 / 365.0;
+            let deep = !(0.7..=1.4).contains(&(s / k));
+            assert!(near_expiry && deep, "explicit NaN'd a point py_vollib solved, outside the documented unsupported region: S={s} K={k} T={t} r={r} price={price} {kind:?} (py_vollib σ={vol_ref})");
+            continue;
+        }
+        max_abs = max_abs.max((got - vol_ref).abs());
+    }
+    eprintln!("explicit reference comparison: {n} points, {n_nan} NaN'd (documented region), max |σ_explicit − σ_py_vollib| = {max_abs:.3e}");
+    assert!(
+        max_abs < 1e-6,
+        "explicit max abs vol error vs py_vollib = {max_abs:.3e} — too large; harness or algorithm bug"
     );
 }
