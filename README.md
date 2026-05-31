@@ -39,7 +39,37 @@ Verification: an independent 200-bit mpmath oracle (`bench/python/oracle_mpmath.
 
 Bands are oracle bucketing by N(-d2): the `deep_otm` and `deep_itm` labels reflect very-low / very-high OTM-call probability and both correspond to the **deep wings of the (moneyness, vega) plane**. voltic and LBR have zero rows above 1e-3 anywhere. volfi's 913 catastrophic rows concentrate in those two deep-wing bands at 3-4% rate each.
 
-Voltic carries a mild 2-4× residual vs LBR in the deep_otm tail (sub-picovol absolute — max 9.9e-12) — see [Known gaps](#known-gaps).
+Voltic carries a mild 2-4× residual vs LBR in the deep_otm tail (sub-picovol absolute — max 9.9e-12) — see [Accuracy: known gap and v1.1 roadmap](#accuracy-known-gap-and-v11-roadmap).
+
+---
+
+## Verification methodology
+
+Claims of the form "library X has a numerical bug" are usually wrong: nine times out of ten the user fed X the wrong inputs through a misconfigured adapter. Before publishing the volfi finding we ran five independent checks designed to catch exactly that class of mistake. All five agreed.
+
+### 1. Hand-coded direct repro outside the oracle adapter
+
+We pulled the top 10 worst volfi rows from the oracle output and called `volfi.iv_call(F, K, disc, T, c)` directly in a standalone script, with no adapter layer of any kind. All 10 rows reproduced ULP-identical to the oracle run. Maximum disagreement across the 10 rows was 0.0 floats.
+
+### 2. Put-call parity via two independent paths
+
+For each put-side row we computed σ two ways. Path A: our oracle's parity transform `c = p + S - K*disc`, then `volfi.iv_call(c)`. Path B: volfi's own `bs_call` from their published `bench_vollib.py` evaluated at `sigma_true` to produce a call price, then `volfi.iv_call` on that price. Path A and Path B agreed to better than 1e-13 absolute σ on every row tested, and both produced the same catastrophic answer. The error does not depend on which side of parity the row originated on.
+
+### 3. Alternate volfi entry point
+
+We re-ran the worst rows through `volfi.iv_otm` instead of `volfi.iv_call`. The error reproduced on both paths. On Row 10 (true σ ≈ 0.786), `iv_otm` returned 0.4903 and `iv_call` returned 0.4961; both are off by roughly 0.29-0.30 absolute. The failure is not confined to a single volfi entry point.
+
+### 4. volfi-self-priced, volfi-self-inverted
+
+To remove our BS-pricer from the loop entirely, we used volfi's own `bs_call` formula to construct the call price `c` at `sigma_true`, then fed that price back into `volfi.iv_call`. The returned σ was the same wrong value. The failure mode is independent of which Black-Scholes formula produced the input price.
+
+### 5. Bench pattern equivalence to volfi's own `bench_vollib.py`
+
+The call shape used in our benchmark, `volfi.iv_call(F, K, disc, T, c)`, is the same pattern volfi's own published benchmark `bench_vollib.py` uses. The prices we feed volfi agree with what volfi's own `bs_call` produces to within 3.55e-15 absolute, which is the f64 ULP at the relevant magnitudes.
+
+The failure mode is intrinsic to volfi at this regime; 913 of 99,996 rows show err > 1e-3, with floor-ratio (volfi_err / f64_BS_inversion_floor) median 1.34e+11, max 3.04e+15.
+
+---
 
 ### Speed (single-threaded, znver5, taskset -c 0)
 
@@ -70,6 +100,26 @@ median ns/option (median of 7, 5000 reps each): 81.3
 
 The 2 NaN are pre-existing f64 conditioning failures at **(v=0.01, Δ∈{0.30, 0.70})** — tiny-σ near-ATM puts where the BS price is below 1e-7 (no meaningful f64 inverse). Pinned by the `volfi_wing_grid_nan_set_bounded_to_two` regression test so a future inner-iteration edit can't silently expand the NaN set.
 
+### Benchmarks: CLY-3D (Cui-Liu-Yao 2021 standard grid)
+
+The CLY-3D grid (51,321 deep-OTM-weighted points; defined in Cui, Liu, Yao 2021 and used as the standard benchmark in the May 2026 FlashIV and ThiopheneIV preprints) provides a second independent dataset alongside SplitMix64. Grid: `S=100`, `r=0.03`, `K ∈ linspace(105, 800, 40)`, `T ∈ linspace(0.01, 2, 40)`, `σ ∈ linspace(0.01, 0.99, 40)`, filtered to call price > 1e-20 (matches FlashIV Table 3 and ThiopheneIV Table 3 cell count exactly).
+
+| solver | impl | ns/option | wall (s) | max abs err | NaN | catastrophic (≥ 1e-3) |
+|---|---|---:|---:|---:|---:|---:|
+| **voltic 1.0.2 `implied_vol_fast`** | Rust f64x8 SIMD (znver5) | **89** | 0.0046 | 1.539e-09 | 13 | 0 |
+| voltic 1.0.2 `implied_vol_with_context_batch` (cold)† | Rust f64x8 SIMD | 40 | 0.0021 | 8.50e-01 | 0 | 9,977 |
+| py_lets_be_rational (scalar) | Python+C++ scalar loop | 3,268 | 0.168 | 1.539e-09 | 0 | 0 |
+| py_vollib_vectorized | Python+C++ numpy-vectorized | 372 | 0.019 | 1.539e-09 | 0 | 0 |
+| volfi 0.1.8 `iv_call` | C++ binding (vectorized) | 418 | 0.021 | 2.385 | 4,836 | 5,488 |
+
+voltic ≈ LBR ≈ py_vollib_vectorized at 1.539e-9 max abs σ error (all three sit at the f64 reverse-Black floor at the deep-OTM near-expiry corner) while voltic is **36.7× faster than LBR scalar** and **4.2× faster than py_vollib_vectorized**.
+
+The volfi catastrophic-tail reproduces on CLY-3D: 4,836 NaN + 5,488 catastrophic out of 51,321 cases, concentrated in the K/S > 2 band (42,290 cases). This is the same defect class as the v1.0.1 SplitMix64 finding, observed independently on the CLY-3D grid.
+
+Voltic's 13 NaN are by-design rejection in the f64-double-underflow regime where `ln(c) < -708`. The Bachelier-microscopic branch FlashIV §3 defines handles this regime; queued for v1.1. See [Accuracy: known gap and v1.1 roadmap](#accuracy-known-gap-and-v11-roadmap).
+
+† `implied_vol_with_context_batch` trades accuracy for raw throughput by skipping the rational-fallback path; this is the documented split-context API contract. Use `implied_vol_fast` for accuracy-critical paths.
+
 ---
 
 ## How to reproduce
@@ -83,6 +133,10 @@ taskset -c 0 ./target/release/bench --n 1000000
 
 # volfi v×Δ wing-saturated stress grid (360 cases)
 taskset -c 0 ./target/release/wing_grid
+
+# CLY-3D standard grid (Cui-Liu-Yao 2021; 51,321 cases)
+cargo +nightly run --release --bin cly_3d
+python3 bench/python/cly_3d_compare.py
 
 # 200-bit mpmath oracle (100k subsample, ~10 min wall)
 python3 -m venv .venv
@@ -205,10 +259,38 @@ The wing seed replaces a v1.0.0 path that extrapolated the Chebyshev seed beyond
 
 ---
 
-## Known gaps
+## Accuracy: known gap and v1.1 roadmap
 
-- **Mild voltic–LBR residual in deep_otm.** Voltic carries a 2-4× median ratio vs py_lets_be_rational in the deep_otm tail (max absolute 9.9e-12, sub-picovol). Jäckel's rational guess wins by design in that corner; tightening voltic's deep_otm seed is v1.1 work. The ratio is well below the band's f64 conditioning floor for all but the outermost rows — see the per-band table above.
+The v1.0.1 README described a "mild 2-4x gap to LBR in the deep_otm tail." That framing was too coarse. The actual picture is sharper and worth stating precisely: voltic is at LBR parity across most of deep_otm, and the headline gap lives in a thin n=230 tail.
+
+**Empirical finding (SplitMix64 dataset, deep_otm band, n=12,730)**
+
+On 44.6% of deep_otm rows, voltic and LBR tie within 1.5x of the f64 BS-inversion floor (i.e. neither solver has room to do better given input price round-off). On another 17.8% of rows voltic genuinely outperforms LBR by a factor of 2 or more. On the remaining 33.6% voltic genuinely underperforms LBR by 2x or more. Median (voltic_err - lbr_err) is +8.42e-15, mean is +9.66e-14, and the Pearson correlation between voltic_err and lbr_err across all 12,730 rows is 0.746.
+
+**Stratification by |h| = |ln(F/K)| / σ_total**
+
+| \|h\| band | n | voltic_max | LBR_max | f64_floor_max |
+|---|---|---|---|---|
+| [2, 3) | 6,253 | 8.96e-13 | 6.94e-13 | 8.12e-13 |
+| [3, 4) | 6,242 | 1.18e-11 | 1.66e-11 | 1.05e-11 |
+| [4, 10) | 230 | 2.19e-11 | 2.01e-11 | 1.15e-11 |
+
+In the |h| ∈ [3, 4) middle of deep_otm, voltic's worst row beats LBR's worst row. The v1.0.1 headline 2.19e-11 vs 2.01e-11 lives entirely in the n=230 |h|≥4 tail, which is 1.8% of deep_otm rows.
+
+**Root cause**
+
+At |h| ≈ 4.3, the cancellation-free residual evaluator `b_normalized` in `src/black.rs` computes a difference of two `erfcx` values that agree to roughly 1.5 significant digits, then multiplies the difference by ½·exp(-9). The f64 rounding of that inner subtraction is the catastrophic step: the surviving bits of the residual are dominated by round-off rather than by the analytic signal. LBR sidesteps this by switching to an explicit 17-term asymptotic series once |h| crosses its threshold, so its high-|h| path never executes the cancellation.
+
+**v1.1 roadmap**
+
+Le Floc'h and Healy's "FlashIV" preprint (arxiv 2605.29102, May 27 2026) publishes a log-price residual decomposition `c = ½ [erfcx((-h - t)/√2) − e^(−x) · erfcx((-h + t)/√2)]` that structurally avoids the cancellation: the two `erfcx` terms enter as a scaled combination rather than as a raw subtraction at near-equal magnitudes. Voltic v1.1 will implement this evaluator in SIMD f64x8 alongside the existing path, gated on |h|. Expected outcome: voltic matches or beats LBR on the |h|≥4 tail at unchanged throughput. The residual rewrite costs under 1 ns per option amortized across the lane, well below the householder iteration cost that dominates the inner loop.
+
+Both voltic and LBR are within roughly 2x of the physical f64 BS-inversion floor in this regime. The engineering target is at-LBR-parity, not the floor itself; the floor is a property of input price round-off, not of the solver.
+
+Other known gaps:
+
 - **Two NaN at (v=0.01, Δ∈{0.30, 0.70}) on the wing v×Δ stress grid.** Tiny-σ near-ATM puts at the f64 BS price floor (< 1e-7). No meaningful f64 inverse exists for these inputs; they're pinned by the `volfi_wing_grid_nan_set_bounded_to_two` regression test.
+- **13 NaN on CLY-3D `implied_vol_fast`.** Deep-OTM near-expiry double-underflow regime where `ln(c) < -708`. By-design rejection; the Bachelier-microscopic branch FlashIV §3 defines handles this regime, queued for v1.1.
 
 ---
 

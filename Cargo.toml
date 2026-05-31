@@ -1,6 +1,6 @@
 [package]
 name = "voltic"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2021"
 build = "build.rs"
 rust-version = "1.94"
@@ -59,3 +59,7 @@ path = "bench/kernel_nan.rs"
 [[bin]]
 name = "wing_grid"
 path = "bench/wing_grid.rs"
+
+[[bin]]
+name = "cly_3d"
+path = "bench/cly_3d.rs"

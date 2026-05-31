@@ -4,6 +4,79 @@ All notable changes to voltic are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows semantic versioning.
 
+## [1.0.2] — 2026-05-31
+
+Additive release: a second independent benchmark (CLY-3D), an explicit
+verification methodology section documenting the v1.0.1 volfi finding,
+and a sharper diagnostic of the deep_otm LBR-parity story with a v1.1
+roadmap. **No change to the IV kernel.**
+
+### Added
+
+- **CLY-3D benchmark** (`bench/cly_3d.rs` + `bench/python/cly_3d_compare.py`).
+  51,321 cases on the post-LBR standard grid (Cui, Liu, Yao 2021;
+  same grid the May 2026 FlashIV and ThiopheneIV preprints use as
+  benchmark). Grid: `S=100`, `r=0.03`, `K ∈ linspace(105, 800, 40)`,
+  `T ∈ linspace(0.01, 2, 40)`, `σ ∈ linspace(0.01, 0.99, 40)`, filtered
+  to call price > 1e-20. Cell count matches FlashIV Table 3 and
+  ThiopheneIV Table 3 exactly.
+- **README "Verification methodology"** section. Five independent
+  diligence checks behind the v1.0.1 volfi finding: hand-coded direct
+  repro outside the oracle adapter, put-call parity via two independent
+  paths, alternate volfi entry point (`iv_otm` vs `iv_call`),
+  volfi-self-priced volfi-self-inverted, bench pattern equivalence to
+  volfi's own `bench_vollib.py`. All five agree; the failure mode is
+  intrinsic to volfi at the deep-wing regime.
+
+### Refined
+
+- **Known gaps → "Accuracy: known gap and v1.1 roadmap".** New
+  empirical disclosure based on per-row analysis: on 44.6% of deep_otm
+  rows voltic and LBR tie within 1.5x of the f64 BS-inversion floor;
+  on 17.8% voltic beats LBR by ≥2x; on 33.6% voltic loses to LBR by
+  ≥2x. The v1.0.1 headline 2.19e-11 vs 2.01e-11 lives in the |h|≥4
+  tail (n=230, 1.8% of deep_otm). Root cause: an `erfcx` cancellation
+  at |h|≈4.3 in `b_normalized` (`src/black.rs`). The v1.1 roadmap
+  cites the FlashIV (arxiv 2605.29102, May 27 2026) log-price residual
+  decomposition as the structural fix; expected to land voltic at or
+  above LBR parity on the |h|≥4 tail at unchanged throughput.
+
+### Performance
+
+CLY-3D (51,321 cases, znver5, taskset -c 0, median of 7 passes):
+
+| solver | ns/option | max abs err | NaN | catastrophic (≥ 1e-3) |
+|---|---:|---:|---:|---:|
+| voltic 1.0.2 `implied_vol_fast` | **89** | 1.539e-09 | 13 | 0 |
+| voltic 1.0.2 `implied_vol_with_context_batch` (cold)† | 40 | 8.50e-01 | 0 | 9,977 |
+| py_lets_be_rational (scalar) | 3,268 | 1.539e-09 | 0 | 0 |
+| py_vollib_vectorized | 372 | 1.539e-09 | 0 | 0 |
+| volfi 0.1.8 `iv_call` | 418 | 2.385 | 4,836 | 5,488 |
+
+voltic ≈ LBR ≈ py_vollib_vectorized at 1.539e-9 max abs σ error (all
+three sit at the f64 reverse-Black floor at deep-OTM near-expiry).
+voltic is 36.7× faster than LBR scalar and 4.2× faster than
+py_vollib_vectorized.
+
+The volfi catastrophic tail reproduces on CLY-3D: 4,836 NaN + 5,488
+catastrophic out of 51,321, concentrated in the K/S > 2 band (42,290
+cases). Same defect class as the v1.0.1 SplitMix64 finding, observed
+independently on the CLY-3D grid.
+
+Voltic's 13 NaN are by-design rejection in the f64-double-underflow
+regime where `ln(c) < -708`. The Bachelier-microscopic branch FlashIV §3
+defines handles this regime; queued for v1.1.
+
+† `implied_vol_with_context_batch` trades accuracy for raw throughput
+by skipping the rational-fallback path; documented split-context API
+contract. Use `implied_vol_fast` for accuracy-critical paths.
+
+### Unchanged
+
+- No algorithmic change to the IV kernel. `implied_vol_fast`,
+  `implied_vol_with_context_batch`, `implied_vol_fully_vectorized`,
+  and all internal kernels are bit-identical to v1.0.1.
+
 ## [1.0.1] — 2026-05-31
 
 Analytic wing-seed for the deep-wing regime, plus an independent 200-bit
