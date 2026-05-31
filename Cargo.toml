@@ -55,3 +55,7 @@ lto = "thin"
 [[bin]]
 name = "kernel_nan"
 path = "bench/kernel_nan.rs"
+
+[[bin]]
+name = "wing_grid"
+path = "bench/wing_grid.rs"

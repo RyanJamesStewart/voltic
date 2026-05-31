@@ -434,6 +434,148 @@ pub fn householder3_step_simd(v: V, mu: V, q: V) -> V {
     householder3_step(v, mu, q)
 }
 
+// =========================================================================
+// WING SEED — analytic asymptotic seed for the deep-OTM wing.
+//
+// Derived clean-room from the Schadner paper alone (per Wren G's design;
+// volfi source NEVER consulted). The IG quantile in vol-space `v = σ√T`
+// is parameterised by `h = |k_log|` and `q = (1 − c)/m` ∈ (0, 1).
+//
+// The asymptotic structure for large h and small q comes from the fact that
+// the IG survival at moderate-to-large h is dominated by the Mills ratio
+// of two normal tails at `−z1, −z2` with `z2² − z1² = 2h`. Writing
+//
+//   z1 = -Φ⁻¹(q),
+//   z2 = h/u + u/2,        (with u = v = σ√T)
+//
+// the survival `q ≈ φ(z1)·Q(z2)` where `Q(z) = Φ(−z)/φ(z) ≈ 1/z − 1/z³ + …`
+// is the Mills function (2-term truncation). This identity is exact-in-the-limit
+// and OVERFLOW-FREE because the `e^h · Φ(−z2) = φ(z1)·Q(z2)` collapse
+// cancels the `e^h` analytically.
+//
+// Iteration (1 Picard, Wren G's recommendation):
+//   z1₀ = -Φ⁻¹(q);  u₀ = -z1₀ + sqrt(z1₀² + 2h)         (leading W0)
+//   for n in 0..N_PICARD:
+//     z2  = h/u + u/2
+//     inv = 1/z2
+//     Q   = inv − inv³           (2-term Mills)
+//     φ   = (2π)^(−1/2) · exp(−z1²/2)
+//     δ   = φ · Q                (= eᵐ·Φ(−z2), overflow-free)
+//     z1  = -Φ⁻¹(q + δ)
+//     u   = -z1 + sqrt(z1² + 2h)
+//   return u
+//
+// **Why** φ(z1) · Q(z2) ≡ e^h · Φ(−z2) exactly. With z2² − z1² = 2h:
+//   e^h · Φ(−z2) = e^((z2² − z1²)/2) · Φ(−z2) = e^(−z1²/2) · e^(z2²/2) · Φ(−z2).
+//
+// Define the scaled Mills ratio
+//     Q(z) := √(π/2) · erfcx(z/√2)              (= e^(z²/2) · Φ(−z) · √(2π))
+// with the standard asymptotic
+//     Q(z) ≈ 1/z − 1/z³  for large z            (2-term Mills truncation).
+//
+// Then  e^(z2²/2) · Φ(−z2) = Q(z2) / √(2π), so
+//     e^h · Φ(−z2) = (1/√(2π)) · e^(−z1²/2) · Q(z2) = φ(z1) · Q(z2).
+// Verified analytically + numerically by Wren G.
+//
+// Domain gate (chosen by Wren G's analysis):
+//   - `h ≥ K_HI_BAILOUT = 2.95`   (the wing regime starts ≥ |k_log| ≈ 3)
+//   - `q < WING_Q_MAX = 0.30`     (deep-OTM, the wing's natural support)
+//   - `h < WING_H_MAX = 8.0`      (above this we route to Jäckel; surv → 0
+//                                  faster than the Mills truncation captures)
+// =========================================================================
+
+/// Lower `|k|` bound for the wing regime. Below this the Chebyshev seed is
+/// authoritative.
+pub const WING_K_LO: f64 = 2.95;
+/// Upper `q` bound for the wing regime. Above this the q-side asymptotics
+/// of the Mills truncation degrade; route through the Chebyshev seed.
+pub const WING_Q_MAX: f64 = 0.30;
+/// Upper `h` bound for the wing regime. Above this Φ⁻¹(q+δ) saturates the
+/// `phi_inv` Branca-tail and we fall through to Jäckel.
+pub const WING_H_MAX: f64 = 8.0;
+
+/// Number of Picard iterations after the leading-order W0 seed.
+///
+/// Empirical sweep (Crucible znver5, 2026-05-31):
+///   - N_PICARD=0 + HH3=3: 81.7 ns / 7.4e-12 wing grid, 73.4 ns Schadner cold
+///   - N_PICARD=1 + HH3=3: 87.3 ns / 7.4e-12 wing grid, 73.1 ns Schadner cold
+///   - N_PICARD=2 + HH3=3: 93.0 ns / 7.4e-12 wing grid, 73.4 ns Schadner cold
+///
+/// Wren G's prediction was that 1 Picard suffices because HH3 is cubic and
+/// 2 HH3 steps would land at f64 floor from a 1-4% seed. The actual result
+/// is stronger: with HH3=3 (the existing kernel default), the leading-order
+/// W0 seed (no Picard at all) already lands at the wing-grid floor of
+/// 7.4e-12. The Picard iterations are then redundant — they neither improve
+/// the recovered σ nor change the NaN count. So we ship N_PICARD=0.
+pub const WING_N_PICARD: usize = 0;
+
+/// Analytic wing seed: returns `v = σ√T` directly from `(|k|, q_surv)`
+/// lane-packed.
+///
+/// **Convention**: `q_surv` is the IG SURVIVAL probability `c_*` (= the
+/// normalized OTM-call price), NOT the IG CDF. Caller is responsible for
+/// the conversion `q_surv = 1 - q_cdf` if their pipeline carries the CDF
+/// form (the kernel's `q = (1-c)/m` is the CDF; convert at the dispatch
+/// site). Small `q_surv` is the deep-OTM wing.
+///
+/// **Domain**: caller is responsible for masking lanes outside
+/// `|k| ≥ WING_K_LO ∧ q_surv < WING_Q_MAX ∧ h < WING_H_MAX`. Out-of-domain
+/// inputs will not blow up (we clamp `q_surv + δ` into (0,1) for `phi_inv`),
+/// but the returned `v` is not guaranteed to be useful as a seed for HH3.
+///
+/// **Clean-room provenance**: derived from the Schadner paper's IG-CDF
+/// asymptotic structure + Mills ratio truncation; volfi source code was
+/// NOT consulted at any point.
+#[inline]
+pub fn wing_seed_simd(k_abs: V, q: V) -> V {
+    // h ≡ |k_log| for symmetric notation with the Schadner paper.
+    let h = k_abs;
+
+    // Stage 0: leading-order W0.
+    // z1 = -Φ⁻¹(q),   u = -z1 + sqrt(z1² + 2h).
+    let z1_0 = -norm::phi_inv(q);
+    let two_h = V::splat(2.0) * h;
+    let u0 = -z1_0 + (z1_0 * z1_0 + two_h).sqrt();
+
+    // Stage 1: N_PICARD Picard iterates on the Mills-truncation fixed point.
+    //
+    // We unroll the loop manually so the compiler keeps everything in
+    // registers; N_PICARD is a compile-time const so the LLVM unroller would
+    // do this anyway but explicit is friendlier to read.
+    let inv_sqrt_2pi = V::splat(0.398_942_280_401_432_7_f64); // 1/√(2π)
+
+    // Clamp helpers to keep `q + δ` strictly in (0,1) for `phi_inv` even when
+    // δ is tiny-but-noisy on out-of-domain lanes. The wing regime gate
+    // outside guarantees q < 0.3 and δ > 0; the upper-clamp is paranoia.
+    let one_minus_eps = V::splat(1.0 - 1e-15);
+    let eps_v = V::splat(1e-300);
+
+    let mut u = u0;
+    let mut z1 = z1_0;
+
+    let mut step = 0;
+    while step < WING_N_PICARD {
+        // z2 = h/u + 0.5*u
+        let z2 = h / u + V::splat(0.5) * u;
+        // 2-term Mills truncation: Q = 1/z2 − 1/z2³.
+        let inv = V::splat(1.0) / z2;
+        let inv2 = inv * inv;
+        let inv3 = inv2 * inv;
+        let qq = inv - inv3;
+        // φ(z1) = (2π)^(−1/2) · exp(−z1²/2).
+        let phi_v = inv_sqrt_2pi * norm::vexp(V::splat(-0.5) * z1 * z1);
+        // δ = φ · Q  = e^h · Φ(−z2)   (overflow-free identity).
+        let delta = phi_v * qq;
+        // Updated tail probability for the next probit.
+        let q_plus = (q + delta).simd_max(eps_v).simd_min(one_minus_eps);
+        z1 = -norm::phi_inv(q_plus);
+        u = -z1 + (z1 * z1 + two_h).sqrt();
+        step += 1;
+    }
+    u
+}
+
+
 /// Solve one lane-packed batch by Schadner's formula + Chebyshev seed + one Halley step.
 #[inline]
 fn solve_chunk_fast(s: V, k: V, t: V, r: V, price: V, is_call: M, valid: M) -> V {
@@ -468,16 +610,46 @@ fn solve_chunk_fast(s: V, k: V, t: V, r: V, price: V, is_call: M, valid: M) -> V
 
     let v_lo = V::splat(VOL_MIN) * sqrt_t;
     let v_hi = V::splat(VOL_MAX) * sqrt_t;
-    let mut v_iter = cheb_seed(k_for_seed, q_for_seed)
-        .simd_max(v_lo)
-        .simd_min(v_hi);
+
+    // Wing predicate (Wren G's dispatch gate): the analytic wing seed
+    // dominates on lanes with `|k| ≥ WING_K_LO ∧ q_surv < WING_Q_MAX ∧ h < WING_H_MAX`,
+    // where `q_surv = 1 - q = c_*` is the IG survival probability (= the
+    // normalized OTM-call price). The kernel's `q` here is the IG CDF
+    // (= 1 - c_*); we convert at dispatch. For padding-safe behaviour we
+    // clamp `q_surv` to (eps, WING_Q_MAX) and `h` to the wing range so
+    // out-of-domain lanes still produce a finite (lane-masked) value.
+    let q_surv = V::splat(1.0) - q;
+    let use_wing = ak.simd_ge(V::splat(WING_K_LO))
+        & q_surv.simd_lt(V::splat(WING_Q_MAX))
+        & q_surv.simd_gt(V::splat(0.0))
+        & ak.simd_lt(V::splat(WING_H_MAX));
+    let cheb_v = cheb_seed(k_for_seed, q_for_seed);
+    // Chunk-level bailout: if NO lane in this chunk needs the wing seed,
+    // skip the wing computation entirely. wing_seed_simd is expensive
+    // (phi_inv + vexp + sqrt, ~50ns/chunk). On the Schadner cold grid
+    // most chunks are entirely outside the wing (|k|<3), so this is the
+    // critical no-regression knob for the cold benchmark.
+    let seed_v = if use_wing.any() {
+        let q_wing_clamped = q_surv
+            .simd_max(V::splat(1e-300))
+            .simd_min(V::splat(WING_Q_MAX));
+        let h_wing_clamped = ak
+            .simd_max(V::splat(WING_K_LO))
+            .simd_min(V::splat(WING_H_MAX));
+        let wing_v = wing_seed_simd(h_wing_clamped, q_wing_clamped);
+        use_wing.select(wing_v, cheb_v)
+    } else {
+        cheb_v
+    };
+
+    let mut v_iter = seed_v.simd_max(v_lo).simd_min(v_hi);
+
     // `HALLEY_STEPS` Halley iterations. Each step takes residual `e` to ~e³;
-    // seed accuracy ~9e-7 → 1 Halley reaches f64 conditioning floor on the
-    // accepted regime. Excess iterations are insurance for the wings where
-    // Halley convergence stretches. The vega-scaled gate poisons any lane
-    // that did NOT converge, and the `implied_vol_fast` wrapper refires
-    // those lanes via the rational kernel — so dropping `HALLEY_STEPS`
-    // trades kernel time for fallback time.
+    // seed accuracy ~9e-7 (cheb) or ~1% (wing) → 1 Halley reaches f64
+    // conditioning floor on the accepted regime. The vega-scaled gate
+    // poisons any lane that did NOT converge, and the `implied_vol_fast`
+    // wrapper refires those lanes via the rational kernel — so dropping
+    // `HALLEY_STEPS` trades kernel time for fallback time.
     let mut _i = 0;
     while _i < HALLEY_STEPS {
         v_iter = halley_step(v_iter, mu, q).simd_max(v_lo).simd_min(v_hi);

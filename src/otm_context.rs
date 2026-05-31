@@ -39,7 +39,7 @@ use std::simd::StdFloat;
 use crate::schadner_fast::{
     cheb_qside_basis, cheb_qside_basis_simd, cheb_seed_from_basis_simd,
     cheb_seed_from_kside_basis_scalar, householder3_step_simd, ig_kt_prelude_scalar,
-    SEED_DEG_PUB,
+    wing_seed_simd, SEED_DEG_PUB, WING_H_MAX, WING_K_LO, WING_Q_MAX,
 };
 use crate::{LANES, M, V, VOL_MAX, VOL_MIN};
 
@@ -481,7 +481,33 @@ fn solve_with_ctx_simd(ctx: &OtmContextSimd, c_v: V) -> V {
     let q_for_seed = q_v.simd_max(p_lo_v).simd_min(p_hi_v);
 
     let cheb_tw = cheb_qside_basis_simd(q_for_seed);
-    let seed_v = cheb_seed_from_basis_simd(&ctx.cheb_tu, &cheb_tw);
+    let cheb_v = cheb_seed_from_basis_simd(&ctx.cheb_tu, &cheb_tw);
+
+    // Wing dispatch: lanes in the deep-OTM wing regime get the analytic
+    // wing seed instead of the Chebyshev seed. ctx.ak carries |k_log|. The
+    // wing seed expects IG SURVIVAL (= c_*); kernel q is the IG CDF
+    // (= 1 - c_*) — convert here.
+    let q_surv = V::splat(1.0) - q_v;
+    let use_wing = ctx.ak.simd_ge(V::splat(WING_K_LO))
+        & q_surv.simd_lt(V::splat(WING_Q_MAX))
+        & q_surv.simd_gt(V::splat(0.0))
+        & ctx.ak.simd_lt(V::splat(WING_H_MAX));
+    // Chunk-level bailout: skip the expensive wing_seed_simd call if no
+    // lane in this chunk needs it. Preserves cold-grid throughput.
+    let seed_v = if use_wing.any() {
+        let q_wing_clamped = q_surv
+            .simd_max(V::splat(1e-300))
+            .simd_min(V::splat(WING_Q_MAX));
+        let h_wing_clamped = ctx
+            .ak
+            .simd_max(V::splat(WING_K_LO))
+            .simd_min(V::splat(WING_H_MAX));
+        let wing_v = wing_seed_simd(h_wing_clamped, q_wing_clamped);
+        use_wing.select(wing_v, cheb_v)
+    } else {
+        cheb_v
+    };
+
     let mut v_iter = seed_v.simd_max(ctx.v_lo).simd_min(ctx.v_hi);
     let mut j = 0;
     while j < HOUSEHOLDER3_STEPS_CTX {
