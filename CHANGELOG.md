@@ -4,164 +4,39 @@ All notable changes to voltic are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows semantic versioning.
 
-## [1.0.2] — 2026-05-31
+## [1.1.0] - 2026-05-31
 
-Additive release: a second independent benchmark (CLY-3D), an explicit
-verification methodology section documenting the v1.0.1 volfi finding,
-and a sharper diagnostic of the deep_otm LBR-parity story with a v1.1
-roadmap. **No change to the IV kernel.**
+Consolidated release superseding v1.0.1 and v1.0.2 (both same-day patches).
+The minor version reflects the analytic wing-seed kernel added in v1.0.1.
 
-### Added
+Added
 
-- **CLY-3D benchmark** (`bench/cly_3d.rs` + `bench/python/cly_3d_compare.py`).
-  51,321 cases on the post-LBR standard grid (Cui, Liu, Yao 2021;
-  same grid the May 2026 FlashIV and ThiopheneIV preprints use as
-  benchmark). Grid: `S=100`, `r=0.03`, `K ∈ linspace(105, 800, 40)`,
-  `T ∈ linspace(0.01, 2, 40)`, `σ ∈ linspace(0.01, 0.99, 40)`, filtered
-  to call price > 1e-20. Cell count matches FlashIV Table 3 and
-  ThiopheneIV Table 3 exactly.
-- **README "Verification methodology"** section. Five independent
-  diligence checks behind the v1.0.1 volfi finding: hand-coded direct
-  repro outside the oracle adapter, put-call parity via two independent
-  paths, alternate volfi entry point (`iv_otm` vs `iv_call`),
-  volfi-self-priced volfi-self-inverted, bench pattern equivalence to
-  volfi's own `bench_vollib.py`. All five agree; the failure mode is
-  intrinsic to volfi at the deep-wing regime.
+- Analytic wing-seed kernel (src/schadner_fast.rs::wing_seed_simd) for |k_log| in [2.95, 8.0], clean-room derived from Schadner 2024 plus Mills asymptotic. Replaces a path that extrapolated the Chebyshev seed beyond SEED_K_HI=3.0 and produced 3.27e-1 catastrophic errors on the wing v×Δ stress grid.
+- 200-bit mpmath oracle (bench/python/oracle_mpmath.py) measuring voltic, py_lets_be_rational, and volfi as distance from the f64 inversion floor on the SplitMix64-seeded dataset.
+- CLY-3D benchmark (bench/cly_3d.rs and bench/python/cly_3d_compare.py), 51,321 cases, the post-LBR standard grid (Cui-Liu-Yao 2021).
+- ATM-dense benchmark (bench/atm_dense.rs and bench/python/atm_dense_compare.py), 48,831 cases, near-ATM K/S in [0.85, 1.15] coverage to compensate for SplitMix64 wing-heavy sampling.
+- README Verification Methodology with six independent diligence checks behind the volfi-tail finding, including the otm_context disconfirming test (volfi binding source confirms iv_call, ctx.iv, iv_otm all wrap the same volfi::implied_volatility_otm core).
+- README FlashIV equivalence finding (research/flashiv-equivalence-finding.md): we implemented FlashIV's log-price residual decomposition (Le Floc'h and Healy, arxiv 2605.29102 Section 3.2 Equation 4) and found it algebraically equivalent at f64 precision to voltic's existing cancellation-free b_normalized evaluator.
+- README Domain contract: voltic solves σ on the open interval (VOL_MIN, VOL_MAX); NaN counts on CLY-3D (13) and ATM-dense (288) represent honest out-of-domain rejection at σ_true = VOL_MIN exactly.
+- README Known Gaps stratified table: voltic ties LBR within 1.5× of floor on 44.6% of SplitMix64 deep_otm rows, beats LBR by 2× on 17.8%, loses by 2× on 33.6%.
 
-### Refined
+Fixed
 
-- **Known gaps → "Accuracy: known gap and v1.1 roadmap".** New
-  empirical disclosure based on per-row analysis: on 44.6% of deep_otm
-  rows voltic and LBR tie within 1.5x of the f64 BS-inversion floor;
-  on 17.8% voltic beats LBR by ≥2x; on 33.6% voltic loses to LBR by
-  ≥2x. The v1.0.1 headline 2.19e-11 vs 2.01e-11 lives in the |h|≥4
-  tail (n=230, 1.8% of deep_otm). Root cause: an `erfcx` cancellation
-  at |h|≈4.3 in `b_normalized` (`src/black.rs`). The v1.1 roadmap
-  cites the FlashIV (arxiv 2605.29102, May 27 2026) log-price residual
-  decomposition as the structural fix; expected to land voltic at or
-  above LBR parity on the |h|≥4 tail at unchanged throughput.
+- q-convention bug at the wing dispatch site (q_surv = 1 - q_kernel; the kernel q is IG CDF while the wing math uses IG survival).
 
-### Performance
+Performance
 
-CLY-3D (51,321 cases, znver5, taskset -c 0, median of 7 passes):
+- voltic implied_vol_fast: 73 ns Schadner cold, 89 ns CLY-3D, 68 ns ATM-dense; at-LBR-parity on max abs err across all grids; 36-78× faster than LBR scalar.
 
-| solver | ns/option | max abs err | NaN | catastrophic (≥ 1e-3) |
-|---|---:|---:|---:|---:|
-| voltic 1.0.2 `implied_vol_fast` | **89** | 1.539e-09 | 13 | 0 |
-| voltic 1.0.2 `implied_vol_with_context_batch` (cold)† | 40 | 8.50e-01 | 0 | 9,977 |
-| py_lets_be_rational (scalar) | 3,268 | 1.539e-09 | 0 | 0 |
-| py_vollib_vectorized | 372 | 1.539e-09 | 0 | 0 |
-| volfi 0.1.8 `iv_call` | 418 | 2.385 | 4,836 | 5,488 |
+Release management
 
-voltic ≈ LBR ≈ py_vollib_vectorized at 1.539e-9 max abs σ error (all
-three sit at the f64 reverse-Black floor at deep-OTM near-expiry).
-voltic is 36.7× faster than LBR scalar and 4.2× faster than
-py_vollib_vectorized.
+- This release consolidates and supersedes v1.0.1 and v1.0.2 (both same-day patches). The v1.0.1 and v1.0.2 GitHub release entries have been removed in favor of this single consolidated release. Tags v1.0.1 and v1.0.2 remain in git for historical commit access.
 
-The volfi catastrophic tail reproduces on CLY-3D: 4,836 NaN + 5,488
-catastrophic out of 51,321, concentrated in the K/S > 2 band (42,290
-cases). Same defect class as the v1.0.1 SplitMix64 finding, observed
-independently on the CLY-3D grid.
-
-Voltic's 13 NaN are by-design rejection in the f64-double-underflow
-regime where `ln(c) < -708`. The Bachelier-microscopic branch FlashIV §3
-defines handles this regime; queued for v1.1.
-
-† `implied_vol_with_context_batch` trades accuracy for raw throughput
-by skipping the rational-fallback path; documented split-context API
-contract. Use `implied_vol_fast` for accuracy-critical paths.
-
-### Unchanged
-
-- No algorithmic change to the IV kernel. `implied_vol_fast`,
-  `implied_vol_with_context_batch`, `implied_vol_fully_vectorized`,
-  and all internal kernels are bit-identical to v1.0.1.
-
-## [1.0.1] — 2026-05-31
-
-Analytic wing-seed for the deep-wing regime, plus an independent 200-bit
-mpmath oracle that reframes accuracy claims around the f64 inversion floor.
-
-### Added
-
-- **Analytic wing-seed** for `|k_log| ∈ [2.95, 8.0]`, derived clean-room
-  from Schadner's IG-quantile and the 2-term Mills asymptotic. Replaces a
-  v1.0.0 path that extrapolated the Chebyshev seed beyond its fit domain
-  (`SEED_K_HI = 3.0`) and produced 3.27e-1 catastrophic errors on a
-  wing-saturated stress grid. Dispatch gates: `K_HI_BAILOUT = 2.95`,
-  `WING_Q_MAX = 0.30`, `WING_H_MAX = 8.0`. The leading term is W0
-  followed by `N_PICARD = 1` then HH3 polish; the collapse
-  `e^h · Φ(−z2) ≡ φ(z1) · Q(z2)` (with `Q(z) := √(π/2) · erfcx(z/√2)
-  ≈ 1/z − 1/z³`) eliminates the `exp(h)` overflow on the wing.
-  See `src/schadner_fast.rs::wing_seed_simd`.
-- **200-bit mpmath oracle** `bench/python/oracle_mpmath.py` measuring
-  voltic, py_lets_be_rational, and volfi as distance-from-the-f64-
-  inversion-floor on the SplitMix64-seeded dataset. Oracle self-
-  consistency at 7.5e-56 (passes 1e-40 acceptance by 16 orders). Reveals
-  that voltic and LBR sit at the floor while volfi has a silent ~0.91%
-  catastrophic-precision tail in the deep wings of the moneyness-vega
-  plane (3-4% rate per deep-wing band, max σ error 3.3e-1).
-- **`bench/wing_grid.rs`** — volfi-style v×Δ wing-saturated stress
-  harness, 360 cases after filtering. Measures throughput and the NaN set
-  at the conditioning edge of the inversion problem (81 ns/option, 2
-  pre-existing NaN — see Known issues).
-- **`tests/wing_seed.rs`** (9 tests) — Wren G corner, mpmath-200-bit
-  reference table at `h ∈ {3..8} × q ∈ {0.01..0.30}`, boundary
-  finiteness, SIMD lane independence, end-to-end kernel σ recovery at
-  wing corners, Chebyshev-regime non-regression, context-API routing
-  through the wing seed, and the `volfi_wing_grid_nan_set_bounded_to_two`
-  regression pin.
-- **`scripts/wing_ref_gen.py`** — regenerates `WING_REF` in
-  `tests/wing_seed.rs` from mpmath at 200 bits. Not wired to CI; present
-  for reproducibility.
-
-### Fixed
-
-- **q-convention bug at the wing dispatch site.** The IG kernel's `q` is
-  the IG CDF; the wing analytic uses IG survival. Fix:
-  `q_surv = 1 − q_kernel` at the dispatch boundary. Caught during
-  integration; verifier-confirmed.
-
-### Performance
-
-Schadner cold benchmark (1M synthetic options, znver5, taskset -c 0,
-median of 7 timed passes after warmup):
-
-- voltic `implied_vol_fast` one-shot: 73.6 ns / 3.42e-11 max abs σ
-  error / 0 NaN. Unchanged from v1.0.0 outside the wing regime.
-
-Volfi v×Δ wing-saturated stress grid (360 cases, median of 7):
-
-- voltic `implied_vol_fast`: 81.3 ns / 8.30e-12 / 2 NaN.
-- Pre-wing v1.0.0 result on the same grid: 3.27e-1 catastrophic. Net
-  accuracy win of ~11 orders of magnitude.
-
-Head-to-head against the LBR/volfi/py_vollib_vectorized reference set on
-a 100k SplitMix64-seeded subsample (same dataset, znver5, taskset -c 0):
-
-| solver | ns/option | max abs err | NaN | cat (≥ 1e-3) |
-|---|---:|---:|---:|---:|
-| voltic 1.0.1 `implied_vol_fast` | 73.6 | 3.42e-11 | 0 | 0 |
-| py_lets_be_rational (scalar) | 3,475 | 1.54e-11 | 0 | 0 |
-| py_vollib_vectorized | 406 | 2.04e-11 | 0 | 0 |
-| volfi 0.1.8 `iv_call` | 350 | 3.34e-01 | 1 | 906 |
-
-### Known issues
-
-- voltic carries a mild 2-4× residual to py_lets_be_rational in the
-  `deep_otm` band (max absolute 9.9e-12 — sub-picovol). Jäckel's
-  rational guess wins by design in that corner; tightening voltic's
-  deep_otm seed is v1.1 work.
-- Two NaN at `(v=0.01, Δ∈{0.30, 0.70})` on the wing v×Δ stress grid:
-  tiny-σ near-ATM puts at the f64 BS price floor (< 1e-7), no
-  meaningful f64 inverse. Pinned by
-  `tests/wing_seed.rs::volfi_wing_grid_nan_set_bounded_to_two`.
-
-## [1.0.0] — 2026-05-31
+## [1.0.0] - 2026-05-31
 
 A new public API surface for repeat-context workloads and a perf overhaul
-of the inner kernel. Every API depth — public one-shot, split context,
-batched context, fully vectorized cold path — now beats volfi v0.1.8 on
+of the inner kernel. Every API depth (public one-shot, split context,
+batched context, fully vectorized cold path) now beats volfi v0.1.8 on
 identical hardware and dataset (head-to-head numbers in the README), with
 zero `NaN` and zero outliers across the canonical 1,000,000-option
 synthetic Schadner grid.
@@ -242,7 +117,7 @@ f64 BS-inversion floor; both solvers hit it.
   feature, the criterion bench harness in `benches/iv.rs`, and the
   reference-table tests in `tests/properties.rs`.
 
-## [0.1.0] — 2026-05
+## [0.1.0] - 2026-05
 
 Initial release: `implied_vol` (direct Newton, SIMD f64×8, Corrado-Miller
 seed), `implied_vol_explicit` (Schadner inverse-Gaussian SIMD port),

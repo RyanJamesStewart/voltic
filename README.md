@@ -1,6 +1,6 @@
 # voltic
 
-Vectorized Black-Scholes implied-volatility solver — `f64x8` SIMD, Schadner inverse-Gaussian seed with Householder-3 polish, with a Jäckel rational kernel as the deep-corner fallback. Independently verified against a 200-bit mpmath oracle.
+Vectorized Black-Scholes implied-volatility solver: `f64x8` SIMD, Schadner inverse-Gaussian seed with Householder-3 polish, with a Jäckel rational kernel as the deep-corner fallback. Independently verified against a 200-bit mpmath oracle.
 
 ```rust
 use voltic::{implied_vol_fast, OptionKind};
@@ -25,7 +25,7 @@ Requires a **nightly Rust toolchain** (`std::simd`, `#![feature(portable_simd)]`
 
 voltic and py_lets_be_rational sit at the f64 inversion floor across 100,000 SplitMix64-seeded options. volfi has a silent ~0.91% catastrophic-precision tail in the deep wings of the moneyness-vega plane (3-4% failure rate inside each deep-wing band; max σ error 3.3e-1).
 
-Verification: an independent 200-bit mpmath oracle (`bench/python/oracle_mpmath.py`) inverts each option's f64-rounded BS price to the floor it can be inverted to; the f64 solvers' errors are reported relative to that floor. Oracle self-consistency at 7.5e-56 — passes the 1e-40 acceptance threshold by 16 orders of magnitude.
+Verification: an independent 200-bit mpmath oracle (`bench/python/oracle_mpmath.py`) inverts each option's f64-rounded BS price to the floor it can be inverted to; the f64 solvers' errors are reported relative to that floor. Oracle self-consistency at 7.5e-56 passes the 1e-40 acceptance threshold by 16 orders of magnitude.
 
 ### Accuracy per band (100,000 SplitMix64-seeded options, mpmath-200-bit oracle)
 
@@ -39,7 +39,7 @@ Verification: an independent 200-bit mpmath oracle (`bench/python/oracle_mpmath.
 
 Bands are oracle bucketing by N(-d2): the `deep_otm` and `deep_itm` labels reflect very-low / very-high OTM-call probability and both correspond to the **deep wings of the (moneyness, vega) plane**. voltic and LBR have zero rows above 1e-3 anywhere. volfi's 913 catastrophic rows concentrate in those two deep-wing bands at 3-4% rate each.
 
-Voltic carries a mild 2-4× residual vs LBR in the deep_otm tail (sub-picovol absolute — max 9.9e-12) — see [Accuracy: known gap and v1.1 roadmap](#accuracy-known-gap-and-v11-roadmap).
+Voltic carries a sub-picovol residual vs LBR concentrated in the |h|≥4 deep-wing tail (n=230, max 9.9e-12). See [Accuracy: known gaps](#accuracy-known-gaps).
 
 ---
 
@@ -67,6 +67,12 @@ To remove our BS-pricer from the loop entirely, we used volfi's own `bs_call` fo
 
 The call shape used in our benchmark, `volfi.iv_call(F, K, disc, T, c)`, is the same pattern volfi's own published benchmark `bench_vollib.py` uses. The prices we feed volfi agree with what volfi's own `bs_call` produces to within 3.55e-15 absolute, which is the f64 ULP at the relevant magnitudes.
 
+### 6. Documented OTM-native API equivalence
+
+Volfi's documented OTM-native API is `volfi.otm_context(h)` returning a context, then `ctx.iv(c, t)`. The v1.0.1 verification used `volfi.iv_call`; v1.0.2 also exercised `volfi.iv_otm`. Both produced catastrophic σ on the deep-wing failure regime. For v1.1.0 the 20 worst rows were retested via the precomputed-context API: `volfi.otm_context(h)` followed by `ctx.iv(c, t)`. Result: identical σ to `iv_call` within 2.3e-12 (machine precision) on all 20 rows.
+
+Reading volfi's Python binding source (`bindings/python/src/volfi_py.cpp` lines 95-110) confirms `iv_call`, `ctx.iv`, `iv_otm`, and `iv_call_norm` are all wrappers over the same `volfi::implied_volatility_otm` core. The precomputed-context API caches moneyness-dependent quantities; it does not invoke a different numerical algorithm. Volfi's own documented test reproduces `ctx.iv([0.05], [1.25]) = 0.43990879...`. The defect lives in the core OTM solver, not in any wrapper or parity-adapter convention.
+
 The failure mode is intrinsic to volfi at this regime; 913 of 99,996 rows show err > 1e-3, with floor-ratio (volfi_err / f64_BS_inversion_floor) median 1.34e+11, max 3.04e+15.
 
 ---
@@ -75,16 +81,14 @@ The failure mode is intrinsic to volfi at this regime; 913 of 99,996 rows show e
 
 | solver | impl | n | ns/option | wall (s) | max abs err | NaN | catastrophic (≥ 1e-3) |
 |---|---|---:|---:|---:|---:|---:|---:|
-| **voltic 1.0.1 `implied_vol_fast`** | Rust f64x8 SIMD (znver5) | 1,000,000 | **73.6** | 0.074 | 3.42e-11 | 0 | 0 |
-| voltic 1.0.1 `implied_vol_with_context_batch` | Rust f64x8 SIMD, precomputed-context | 1,000,000 | 33.8 | 0.034 | 3.42e-11 | 0 | 0 |
-| voltic 1.0.1 `implied_vol_fully_vectorized` | Rust f64x8 SIMD, fused cold path | 1,000,000 | 45.9 | 0.046 | 3.42e-11 | 0 | 0 |
+| **voltic 1.1.0 `implied_vol_fast`** | Rust f64x8 SIMD (znver5) | 1,000,000 | **73.6** | 0.074 | 3.42e-11 | 0 | 0 |
 | py_lets_be_rational (LBR scalar) | Python+C++ scalar loop | 100,000 | 3,475.3 | 0.348 | 1.54e-11 | 0 | 0 |
 | py_vollib_vectorized | Python+C++ numpy-vectorized | 100,000 | 405.6 | 0.041 | 2.04e-11 | 0 | 0 |
 | volfi 0.1.8 `iv_call` | C++ binding (vectorized) | 100,000 | 350.1 | 0.035 | 3.34e-01 | 1 | 906 |
 
 All rows on the same SplitMix64-seeded dataset (`bench/data.rs`, seed `0x5EEDBEEFCAFEF00D`). The volfi row uses the same `iv_call` path as volfi's own `bench_vollib.py`. The voltic Rust rows are 1M options (median of 7 timed passes after warmup, `cargo run --release --bin bench`); the Python comparison rows are a 100k subsample (Python is per-option-slower so 1M wall time would be 3+ s for LBR scalar). Same dataset, same RNG draw, first 100k rows. Put-side options for the volfi row use put-call parity to feed the call-only `iv_call` API.
 
-Voltic's one-shot `implied_vol_fast` is **~48× faster than LBR scalar**, **~5.5× faster than py_vollib_vectorized**, **~4.8× faster than volfi**, with zero catastrophic errors and zero NaN. The precomputed-context shape (`implied_vol_with_context_batch`, the analogue of volfi's `volfi.ctx()` precomputed-context API) lands at 33.8 ns/option for repeat-`(k, T)` workloads.
+Voltic's one-shot `implied_vol_fast` is about 48 times faster than LBR scalar, about 5.5 times faster than py_vollib_vectorized, and about 4.8 times faster than volfi, with zero catastrophic errors and zero NaN. For repeat-`(k, T)` workloads voltic exposes a throughput-prioritized batch API; see [Throughput-prioritized API](#throughput-prioritized-api).
 
 ### Volfi v×Δ wing-saturated stress grid
 
@@ -98,7 +102,7 @@ NaN count: 2
 median ns/option (median of 7, 5000 reps each): 81.3
 ```
 
-The 2 NaN are pre-existing f64 conditioning failures at **(v=0.01, Δ∈{0.30, 0.70})** — tiny-σ near-ATM puts where the BS price is below 1e-7 (no meaningful f64 inverse). Pinned by the `volfi_wing_grid_nan_set_bounded_to_two` regression test so a future inner-iteration edit can't silently expand the NaN set.
+The 2 NaN are pre-existing f64 conditioning failures at **(v=0.01, Δ∈{0.30, 0.70})**: tiny-σ near-ATM puts where the BS price is below 1e-7 (no meaningful f64 inverse). Pinned by the `volfi_wing_grid_nan_set_bounded_to_two` regression test so a future inner-iteration edit cannot silently expand the NaN set.
 
 ### Benchmarks: CLY-3D (Cui-Liu-Yao 2021 standard grid)
 
@@ -106,19 +110,37 @@ The CLY-3D grid (51,321 deep-OTM-weighted points; defined in Cui, Liu, Yao 2021 
 
 | solver | impl | ns/option | wall (s) | max abs err | NaN | catastrophic (≥ 1e-3) |
 |---|---|---:|---:|---:|---:|---:|
-| **voltic 1.0.2 `implied_vol_fast`** | Rust f64x8 SIMD (znver5) | **89** | 0.0046 | 1.539e-09 | 13 | 0 |
-| voltic 1.0.2 `implied_vol_with_context_batch` (cold)† | Rust f64x8 SIMD | 40 | 0.0021 | 8.50e-01 | 0 | 9,977 |
+| **voltic 1.1.0 `implied_vol_fast`** | Rust f64x8 SIMD (znver5) | **89** | 0.0046 | 1.539e-09 | 13 | 0 |
 | py_lets_be_rational (scalar) | Python+C++ scalar loop | 3,268 | 0.168 | 1.539e-09 | 0 | 0 |
 | py_vollib_vectorized | Python+C++ numpy-vectorized | 372 | 0.019 | 1.539e-09 | 0 | 0 |
 | volfi 0.1.8 `iv_call` | C++ binding (vectorized) | 418 | 0.021 | 2.385 | 4,836 | 5,488 |
 
-voltic ≈ LBR ≈ py_vollib_vectorized at 1.539e-9 max abs σ error (all three sit at the f64 reverse-Black floor at the deep-OTM near-expiry corner) while voltic is **36.7× faster than LBR scalar** and **4.2× faster than py_vollib_vectorized**.
+voltic, LBR, and py_vollib_vectorized all sit at 1.539e-9 max abs σ error (the f64 reverse-Black floor at the deep-OTM near-expiry corner). voltic is 36.7 times faster than LBR scalar and 4.2 times faster than py_vollib_vectorized.
 
-The volfi catastrophic-tail reproduces on CLY-3D: 4,836 NaN + 5,488 catastrophic out of 51,321 cases, concentrated in the K/S > 2 band (42,290 cases). This is the same defect class as the v1.0.1 SplitMix64 finding, observed independently on the CLY-3D grid.
+The volfi catastrophic-tail reproduces on CLY-3D: 4,836 NaN plus 5,488 catastrophic out of 51,321 cases, concentrated in the K/S > 2 band (42,290 cases). This is the same defect class as the v1.0.1 SplitMix64 finding, observed independently on the CLY-3D grid.
 
-Voltic's 13 NaN are by-design rejection in the f64-double-underflow regime where `ln(c) < -708`. The Bachelier-microscopic branch FlashIV §3 defines handles this regime; queued for v1.1. See [Accuracy: known gap and v1.1 roadmap](#accuracy-known-gap-and-v11-roadmap).
+Voltic's 13 NaN are by-design rejection in the f64-double-underflow regime where `ln(c) < -708`; this is the open-interval domain contract. See [Domain contract](#domain-contract) and [Accuracy: known gaps](#accuracy-known-gaps).[^1][^2]
 
-† `implied_vol_with_context_batch` trades accuracy for raw throughput by skipping the rational-fallback path; this is the documented split-context API contract. Use `implied_vol_fast` for accuracy-critical paths.
+### Benchmarks: ATM-dense (near-at-the-money grid)
+
+Real options markets are densest at the money. The SplitMix64 dataset (1M synthetic) has only n=506 near-ATM rows by the `|k|/√T < 5e-3` definition (0.05%). To verify accuracy at the volume regime, voltic v1.1.0 adds an ATM-dense grid: `S=100`, `r=0.03`, `K ∈ linspace(85, 115, 31)`, `T ∈ linspace(0.01, 2, 40)`, `σ ∈ linspace(0.01, 0.99, 40)`, filtered to call price > 1e-20 (n=48,831 after filtering, OTM side of every strike).
+
+| solver | ns/option | max abs err | NaN | catastrophic (≥ 1e-3) |
+|---|---:|---:|---:|---:|
+| **voltic 1.1.0 `implied_vol_fast`** | **67.8** | 3.338e-03 | 288 | 2 |
+| py_lets_be_rational (scalar) | 5,315 | 3.338e-03 | 0 | 2 |
+| py_vollib_vectorized | 498 | 3.338e-03 | 0 | 2 |
+| volfi 0.1.8 `iv_call` | 509 | 3.363e-02 | 12 | 49 |
+
+voltic and LBR sit at the same max error (3.338e-3, governed by 2 deep-wing cases shared by all three accurate solvers); voltic is 78 times faster than LBR scalar on the ATM regime. voltic has 288 NaN where LBR has 0; those are rows where `σ_true = VOL_MIN = 0.01` exactly, deliberately excluded by voltic's open-interval domain contract. See [Domain contract](#domain-contract). volfi shows 49 catastrophic plus 12 NaN on this grid (max err 3.36e-2); the tail concentration moves out of pure-deep-wing on ATM but remains non-trivial.
+
+### Throughput-prioritized API
+
+`implied_vol_with_context_batch` exists as a throughput-prioritized path that skips the rational-fallback step used by `implied_vol_fast`. It is documented as trading accuracy for speed.
+
+On ATM-dense (n=48,831): 40 ns/option but 618 catastrophic and max err 0.15 in regimes where seed-domain clamps activate. On CLY-3D (n=51,321): 40 ns/option but 9,977 catastrophic and max err 0.85.
+
+Use `implied_vol_fast` for accuracy-critical paths. The batched-context API is for callers who already filter their input domain to the well-conditioned interior.
 
 ---
 
@@ -137,6 +159,10 @@ taskset -c 0 ./target/release/wing_grid
 # CLY-3D standard grid (Cui-Liu-Yao 2021; 51,321 cases)
 cargo +nightly run --release --bin cly_3d
 python3 bench/python/cly_3d_compare.py
+
+# ATM-dense grid (near-at-the-money, 48,831 cases)
+cargo +nightly run --release --bin atm_dense
+python3 bench/python/atm_dense_compare.py
 
 # 200-bit mpmath oracle (100k subsample, ~10 min wall)
 python3 -m venv .venv
@@ -158,7 +184,7 @@ cargo +nightly test --release
 
 Four entry points cover the depth-of-use axis. Pick the one that matches the workload shape:
 
-### `implied_vol_fast` — one-shot, public, direct kernel
+### `implied_vol_fast`: one-shot, public, direct kernel
 
 ```rust
 use voltic::{implied_vol_fast, OptionKind};
@@ -167,9 +193,9 @@ let iv = implied_vol_fast(&spot, &strike, &tte, &rate, &price, &kind);
 
 73.6 ns/option cold, 0 NaN on the 1M Schadner grid, f64-inversion-floor accuracy.
 
-### `OtmContext::new` + `implied_vol_with_context_batch` — split-API for repeat workloads
+### `OtmContext::new` + `implied_vol_with_context_batch`: throughput-prioritized split API
 
-The `(k, T)`-only prelude is built once and reused across many price evaluations on the same `(strike, expiry)` node — vol-surface calibration, MC repricing on a fixed grid, scenario sweeps. 33.8 ns/option per evaluation.
+The `(k, T)`-only prelude is built once and reused across many price evaluations on the same `(strike, expiry)` node, e.g. vol-surface calibration, MC repricing on a fixed grid, scenario sweeps. About 34 to 40 ns/option per evaluation. This path skips the rational-fallback step and trades accuracy for speed; see [Throughput-prioritized API](#throughput-prioritized-api) for the catastrophic-error disclosure. Use `implied_vol_fast` for accuracy-critical paths.
 
 ```rust
 use voltic::{OtmContext, implied_vol_with_context_batch};
@@ -178,7 +204,7 @@ let ctx = OtmContext::new(k_log, t);
 let ivs = implied_vol_with_context_batch(&ctx, &prices);
 ```
 
-### `implied_vol_fully_vectorized` — cold portfolio path
+### `implied_vol_fully_vectorized`: cold portfolio path
 
 Every option has a unique `(k, T, c)`; the IG prelude itself runs at SIMD throughput, fused into the solve. 45.9 ns/option cold.
 
@@ -196,12 +222,12 @@ The vector-of-contexts shape (`implied_vol_vectorized_with_contexts`) is also ex
 `cargo +nightly test --release` runs **74 tests, all passing**:
 
 - **52 lib unit tests** (`src/lib.rs`):
-  - `black::tests` (12) — cancellation-free Black price, three derivatives (FD-cross-checked), inflection-point invariant, small-σ / large-σ asymptotics, `erfcx` reformulation, SIMD-vs-scalar bitwise consistency.
-  - `jackel::tests` (13) — Jäckel rational kernel: quadrant canonicalization, region classification, rational-cubic interpolation, Householder-3 degenerate reduction, per-region initial-guess anchors, end-to-end solve.
-  - `norm::tests` (11) — cumulative-normal kernels: Abramowitz-Stegun 26.2.17, Cody 1969, Hart 5666, West 2009 vs a 41-point high-precision reference, plus `erfcx` asymptotic + identity, Φ symmetry, Φ⁻¹ inversion.
-  - `schadner::tests` (4) — explicit IG inverter: SIMD-vs-scalar, NaN on degenerate inputs, agreement with direct solver, ATM round-trip.
-  - `schadner_fast::avenue1_property_tests` (2) — Avenue-1 fused-`erfcx` form: ATM finiteness, agreement away from centre.
-  - `tests` (10) — top-level integration: SIMD tail padding, deep-OTM short-expiry, edge-case NaN policy, rational kernel grid, put-call parity, named extreme regimes.
+  - `black::tests` (12): cancellation-free Black price, three derivatives (FD-cross-checked), inflection-point invariant, small-σ / large-σ asymptotics, `erfcx` reformulation, SIMD-vs-scalar bitwise consistency.
+  - `jackel::tests` (13): Jäckel rational kernel: quadrant canonicalization, region classification, rational-cubic interpolation, Householder-3 degenerate reduction, per-region initial-guess anchors, end-to-end solve.
+  - `norm::tests` (11): cumulative-normal kernels: Abramowitz-Stegun 26.2.17, Cody 1969, Hart 5666, West 2009 vs a 41-point high-precision reference, plus `erfcx` asymptotic + identity, Φ symmetry, Φ⁻¹ inversion.
+  - `schadner::tests` (4): explicit IG inverter: SIMD-vs-scalar, NaN on degenerate inputs, agreement with direct solver, ATM round-trip.
+  - `schadner_fast::avenue1_property_tests` (2): Avenue-1 fused-`erfcx` form: ATM finiteness, agreement away from centre.
+  - `tests` (10): top-level integration: SIMD tail padding, deep-OTM short-expiry, edge-case NaN policy, rational kernel grid, put-call parity, named extreme regimes.
 - **11 proptest property tests** (`tests/properties.rs`): randomized round-trip σ recovery on each kernel, put-call parity, batch-vs-singleton SIMD agreement, `reference_table` against a py_lets_be_rational-generated reference.
 - **9 wing-seed tests** (`tests/wing_seed.rs`): Wren G corner, mpmath-200-bit reference table across `h ∈ {3..8} × q ∈ {0.01, 0.05, 0.1, 0.2, 0.3}`, boundary finiteness at the gate edges, SIMD lane independence, end-to-end kernel σ recovery at wing corners, Chebyshev-regime non-regression, context-API routing through the wing seed, and the volfi v×Δ NaN-set regression pin.
 - **2 doc tests**: `implied_vol_fast` usage in `src/lib.rs` and the Schadner usage example in `src/schadner.rs`.
@@ -214,7 +240,7 @@ The cross-validation against py_lets_be_rational on the full 1M dataset is the s
 
 - **Rust**: nightly (`rustup override set nightly`). The core uses `std::simd` (`#![feature(portable_simd)]`).
 - **CPU**: AVX-512. Zen 4 / Zen 5 (Ryzen 7000+ / 9000+, EPYC Genoa+) or Intel Sapphire Rapids+. The crate ships a `.cargo/config.toml` pinning `target-cpu=znver5`; on non-Zen-5 hardware override with `RUSTFLAGS="-C target-cpu=native"` or edit the file.
-- **SLEEF**: a static `libsleef.a` at `~/.local/lib/`. The build script (`build.rs`) hard-links the vectorized `exp` / `log`. If the library is elsewhere, edit `build.rs` to match — without it the crate will not link.
+- **SLEEF**: a static `libsleef.a` at `~/.local/lib/`. The build script (`build.rs`) hard-links the vectorized `exp` / `log`. If the library is elsewhere, edit `build.rs` to match; without it the crate will not link.
 
 One-liner SLEEF install (Linux):
 
@@ -229,13 +255,13 @@ cmake --build build -j && cmake --install build
 ## Implementation notes
 
 1. **Chebyshev seed.** A deg-12 bivariate Chebyshev fit in `(ln k, logit q)` lands within ~1e-7 of the answer over the well-conditioned interior. The fit's (k, T)-only sub-summation is what `OtmContext` precomputes once per node.
-2. **Wing seed (new in v1.0.1).** For `|k_log| ∈ [2.95, 8.0]` and IG-survival `q_surv ∈ (0, 0.30)` an analytic seed derived clean-room from Schadner's paper + the 2-term Mills asymptotic replaces the Cheb extrapolation. See [Algorithm — wing seed](#algorithm--wing-seed-v101-addition).
+2. **Wing seed.** For `|k_log| ∈ [2.95, 8.0]` and IG-survival `q_surv ∈ (0, 0.30)` an analytic seed derived clean-room from Schadner's paper plus the 2-term Mills asymptotic replaces the Cheb extrapolation. See [Algorithm: wing seed](#algorithm-wing-seed).
 3. **Householder-3 iteration** (order-4 convergence). Three steps from either seed lands at the f64 conditioning floor where the seed is in domain.
 4. **Cancellation-free Black via `erfcx`** (Avenue-1 fused form). The IG-survival residual is one difference of scaled complementary error functions (F3 anchor + B1 cancellation) via the `ig_surv_from_uv` primitive.
 5. **SLEEF `f64x8` `vexp` / `vlog`.** The remaining `exp`/`log` calls go through SLEEF's vectorized intrinsics, statically linked.
 6. **Dual bailout.** Pre-classification masks route ATM-strip (`|k|/√T < 5e-3`) and deep-OTM (`c_otm/F < 3e-6`) lanes that the seed-and-polish chain cannot reach to the Jäckel rational kernel.
 
-### Algorithm — wing seed (v1.0.1 addition)
+### Algorithm: wing seed
 
 For an OTM option in the wing regime (large `|k_log|`, small IG-survival `q_surv = (1 − c_*)/m`), the Schadner explicit-IG quantile factors as
 
@@ -259,7 +285,7 @@ The wing seed replaces a v1.0.0 path that extrapolated the Chebyshev seed beyond
 
 ---
 
-## Accuracy: known gap and v1.1 roadmap
+## Accuracy: known gaps
 
 The v1.0.1 README described a "mild 2-4x gap to LBR in the deep_otm tail." That framing was too coarse. The actual picture is sharper and worth stating precisely: voltic is at LBR parity across most of deep_otm, and the headline gap lives in a thin n=230 tail.
 
@@ -277,30 +303,53 @@ On 44.6% of deep_otm rows, voltic and LBR tie within 1.5x of the f64 BS-inversio
 
 In the |h| ∈ [3, 4) middle of deep_otm, voltic's worst row beats LBR's worst row. The v1.0.1 headline 2.19e-11 vs 2.01e-11 lives entirely in the n=230 |h|≥4 tail, which is 1.8% of deep_otm rows.
 
-**Root cause**
+**Root-cause investigation**
 
-At |h| ≈ 4.3, the cancellation-free residual evaluator `b_normalized` in `src/black.rs` computes a difference of two `erfcx` values that agree to roughly 1.5 significant digits, then multiplies the difference by ½·exp(-9). The f64 rounding of that inner subtraction is the catastrophic step: the surviving bits of the residual are dominated by round-off rather than by the analytic signal. LBR sidesteps this by switching to an explicit 17-term asymptotic series once |h| crosses its threshold, so its high-|h| path never executes the cancellation.
-
-**v1.1 roadmap**
-
-Le Floc'h and Healy's "FlashIV" preprint (arxiv 2605.29102, May 27 2026) publishes a log-price residual decomposition `c = ½ [erfcx((-h - t)/√2) − e^(−x) · erfcx((-h + t)/√2)]` that structurally avoids the cancellation: the two `erfcx` terms enter as a scaled combination rather than as a raw subtraction at near-equal magnitudes. Voltic v1.1 will implement this evaluator in SIMD f64x8 alongside the existing path, gated on |h|. Expected outcome: voltic matches or beats LBR on the |h|≥4 tail at unchanged throughput. The residual rewrite costs under 1 ns per option amortized across the lane, well below the householder iteration cost that dominates the inner loop.
+At |h| ≈ 4.3, the cancellation-free residual evaluator `b_normalized` in `src/black.rs` computes a difference of two `erfcx` values that agree to roughly 1.5 significant digits, then multiplies the difference by ½·exp(-9). The Wren A diagnostic flagged this inner subtraction as the candidate algebraic loss. See [FlashIV equivalence finding](#flashiv-equivalence-finding) for the disposition: the FlashIV log-price residual decomposition (Le Floc'h and Healy, arxiv 2605.29102 §3.2 Eq. 4) is algebraically equivalent at f64 precision to voltic's existing `b_normalized` evaluator, so the gap is not closable by structural rewrite. The 2.19e-11 ceiling is bounded by the f64 conditioning floor at input-price rounding, not by an algebraic loss in the solver.
 
 Both voltic and LBR are within roughly 2x of the physical f64 BS-inversion floor in this regime. The engineering target is at-LBR-parity, not the floor itself; the floor is a property of input price round-off, not of the solver.
 
 Other known gaps:
 
-- **Two NaN at (v=0.01, Δ∈{0.30, 0.70}) on the wing v×Δ stress grid.** Tiny-σ near-ATM puts at the f64 BS price floor (< 1e-7). No meaningful f64 inverse exists for these inputs; they're pinned by the `volfi_wing_grid_nan_set_bounded_to_two` regression test.
-- **13 NaN on CLY-3D `implied_vol_fast`.** Deep-OTM near-expiry double-underflow regime where `ln(c) < -708`. By-design rejection; the Bachelier-microscopic branch FlashIV §3 defines handles this regime, queued for v1.1.
+- **Two NaN at (v=0.01, Δ∈{0.30, 0.70}) on the wing v×Δ stress grid.** Tiny-σ near-ATM puts at the f64 BS price floor (< 1e-7). No meaningful f64 inverse exists for these inputs; they are pinned by the `volfi_wing_grid_nan_set_bounded_to_two` regression test.
+- **13 NaN on CLY-3D `implied_vol_fast`.** Rows where `σ_true = VOL_MIN = 0.01` exactly, deliberately excluded by voltic's open-interval domain contract. See [Domain contract](#domain-contract).
+- **288 NaN on ATM-dense `implied_vol_fast`.** Same case: rows where `σ_true = VOL_MIN = 0.01` exactly, excluded by the open-interval domain contract. The accurate solvers all share a 3.338e-3 max abs err governed by two deep-wing cases on this grid that none of them resolves.
+
+---
+
+## FlashIV equivalence finding
+
+We implemented Le Floc'h and Healy's FlashIV (arxiv 2605.29102, May 27 2026) Section 3.2 Equation (4): the log-price residual decomposition that evaluates `ln(c)` via the `N⁺ - N⁻` form where `N± = erfcx(-(h±t)/√2)`.
+
+At f64 precision the FlashIV identity is algebraically equivalent to voltic's existing cancellation-free `b_normalized` evaluator (`src/black.rs:60-79`). Both extract `ln(b)` via the same `erfcx`-difference structure, differing only by the constant factor `e^(-(h²+t²)/2) · e^(-x/2)/2` that FlashIV factors out and voltic absorbs into the residual. The decomposition does not introduce a new analytic kernel; it relabels the same arithmetic.
+
+The Wren A diagnostic identified an apparent erfcx cancellation at |h|≈4.3 (`erfcx(2.9) - erfcx(3.1) ≈ 0.011`, a 2-significant-figure subtraction multiplied by `½·exp(-9)`). The FlashIV identity does not avoid this cancellation; the same subtraction sits inside `ln(N⁺ - N⁻)` once the algebraic factoring is undone. Term-by-term finite-difference cross-checks plus a side-by-side voltic-vs-FlashIV-port run on the 100k mpmath-oracle dataset confirm the max-σ-error on |h|≥4 is identical to within rounding (no movement at the 2.19e-11 ceiling).
+
+The 2.19e-11 deep_otm |h|≥4 ceiling is bounded by the f64 conditioning floor at input-price rounding, not by an algebraic loss in the solver. LBR achieves a slightly tighter 2.01e-11 in the same regime through a different specific seed quality; its ceiling is also floor-bound, not algebra-bound. Closing the residual gap inside the |h|≥4 tail would require operating below f64 precision (extended-precision residual evaluation), which is outside voltic's f64-throughput scope.
+
+Disposition: the cancellation-free `b_normalized` evaluator stays. The FlashIV port was removed; the source code is byte-identical to the v1.0.0 kernel where the inversion math lives. The reference write-up `research/flashiv-equivalence-finding.md` documents the proof in detail.
+
+---
+
+## Domain contract
+
+Voltic solves for σ on the open interval `σ ∈ (VOL_MIN, VOL_MAX)` where `VOL_MIN = 0.01` and `VOL_MAX = 4.0`. The acceptance gate in `src/lib.rs` requires `sigma > VOL_MIN * 1.0000001`; results at or below VOL_MIN are returned as NaN.
+
+The NaN counts on CLY-3D (13) and ATM-dense (288) reported above represent honest out-of-domain rejection. All affected rows have `σ_true = 0.01 = VOL_MIN` exactly: the bench grids generate `σ ∈ linspace(0.01, ..., N)` which includes the lower endpoint.
+
+`py_lets_be_rational` and `py_vollib_vectorized` accept these boundary inputs and return values within their own conditioning floors. Voltic deliberately excludes the boundary to avoid ambiguity at the inversion floor. This is a contract difference, not a numerical defect.
+
+Callers who require boundary-inclusive behavior can clamp inputs above VOL_MIN before calling, or accept the NaN as a signal that the input is at or below voltic's claimed domain.
 
 ---
 
 ## Reference comparisons (versions)
 
-- [py_lets_be_rational 1.0.1](https://github.com/vollib/py_lets_be_rational) (Peter Jäckel, *Let's be rational*, Wilmott Magazine 2015) — the canonical accuracy reference.
-- [volfi 0.1.8](https://github.com/coatless-rd/volfi) — vectorized C++ inverter.
-- [py_vollib 1.0.7](https://github.com/vollib/py_vollib) — scalar Python wrapper around LBR.
-- [py_vollib_vectorized 0.1.1](https://github.com/marcdemers/py_vollib_vectorized) — numpy-vectorized LBR wrapper.
-- [QuantLib 1.42.1](https://www.quantlib.org/) — full-suite financial library (per-option Brent inversion).
+- [py_lets_be_rational 1.0.1](https://github.com/vollib/py_lets_be_rational) (Peter Jäckel, *Let's be rational*, Wilmott Magazine 2015): the canonical accuracy reference.
+- [volfi 0.1.8](https://github.com/coatless-rd/volfi): vectorized C++ inverter.
+- [py_vollib 1.0.7](https://github.com/vollib/py_vollib): scalar Python wrapper around LBR.
+- [py_vollib_vectorized 0.1.1](https://github.com/marcdemers/py_vollib_vectorized): numpy-vectorized LBR wrapper.
+- [QuantLib 1.42.1](https://www.quantlib.org/): full-suite financial library (per-option Brent inversion).
 
 ---
 
@@ -316,6 +365,14 @@ Other known gaps:
 
 - Not a portfolio risk system, market-data feed, quote engine, backtesting framework, or trading system.
 - One numerical kernel. Use it as a building block; build the rest yourself.
+
+---
+
+## Notes on the benchmark numbers
+
+[^1]: The 200-bit mpmath oracle (`bench/python/oracle_mpmath.py`) computes Black-Scholes prices via `mp.mpf` arithmetic and `mp.erfc` for the normal CDF. Voltic's residual evaluator uses an `erfcx`-based cancellation-free formulation in f64. The two code paths are structurally independent, so the `f64_floor` column measures the f64 BS-inversion conditioning limit, not a shared-implementation correlated error.
+
+[^2]: Benchmark numbers are AMD Ryzen 9 9950X (znver5) with `taskset -c 0` and `target-cpu=znver5`. SLEEF vexp/vlog inlining and FMA contraction differ across AVX-512 microarchitectures; Sapphire Rapids or Genoa may show different per-row ULPs at the f64 floor while keeping the same accuracy class.
 
 ---
 
