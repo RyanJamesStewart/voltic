@@ -132,6 +132,8 @@ try:
     report_accuracy("py_vollib_vectorized", list(res))
 except ImportError:
     print("\npy_vollib_vectorized not installed — skipping (pip install py_vollib_vectorized)")
+except Exception as e:
+    print(f"\npy_vollib_vectorized failed at runtime — skipping ({type(e).__name__}: {e!s:.120s}…)")
 
 # --- QuantLib --------------------------------------------------------------
 try:

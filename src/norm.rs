@@ -31,6 +31,109 @@
 use std::simd::prelude::*;
 use std::simd::StdFloat;
 
+// ---------------------------------------------------------------------------
+// SLEEF AVX-512 vectorized exp/log bindings.
+// `Sleef_expd8_u10avx512f` / `Sleef_logd8_u10avx512f` operate on a single
+// `__m512d` (8 × f64). `std::simd::Simd<f64, 8>` on AVX-512 x86_64 has the
+// same layout/ABI as `__m512d`, so we transmute at the boundary.
+// ---------------------------------------------------------------------------
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
+use core::arch::x86_64::__m512d;
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
+extern "C" {
+    fn Sleef_expd8_u10avx512f(a: __m512d) -> __m512d;
+    fn Sleef_logd8_u10avx512f(a: __m512d) -> __m512d;
+}
+
+/// Vectorized exp on `Simd<f64, 8>` via SLEEF (u10 ≈ 1 ulp).
+#[inline(always)]
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
+pub fn vexp_f64x8(x: Simd<f64, 8>) -> Simd<f64, 8> {
+    unsafe {
+        let v: __m512d = core::mem::transmute(x);
+        let r = Sleef_expd8_u10avx512f(v);
+        core::mem::transmute::<__m512d, Simd<f64, 8>>(r)
+    }
+}
+
+/// Vectorized ln on `Simd<f64, 8>` via SLEEF (u10 ≈ 1 ulp).
+#[inline(always)]
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
+pub fn vlog_f64x8(x: Simd<f64, 8>) -> Simd<f64, 8> {
+    unsafe {
+        let v: __m512d = core::mem::transmute(x);
+        let r = Sleef_logd8_u10avx512f(v);
+        core::mem::transmute::<__m512d, Simd<f64, 8>>(r)
+    }
+}
+
+/// Fallback for non-AVX-512 builds: delegate to the per-lane libc exp.
+#[inline(always)]
+#[cfg(not(all(target_arch = "x86_64", target_feature = "avx512f")))]
+pub fn vexp_f64x8(x: Simd<f64, 8>) -> Simd<f64, 8> {
+    x.exp()
+}
+
+/// Fallback for non-AVX-512 builds: delegate to the per-lane libc ln.
+#[inline(always)]
+#[cfg(not(all(target_arch = "x86_64", target_feature = "avx512f")))]
+pub fn vlog_f64x8(x: Simd<f64, 8>) -> Simd<f64, 8> {
+    x.ln()
+}
+
+
+/// Generic SIMD exp: routes f64x8 on AVX-512 to SLEEF, otherwise falls back
+/// to `.exp()` (std::simd per-lane libc dispatch). The N==8 branch is a
+/// compile-time const fold, so non-8 monomorphizations have zero runtime
+/// dispatch cost.
+#[inline(always)]
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
+pub fn vexp<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N>
+{
+    if N == 8 {
+        unsafe {
+            let v: __m512d = core::mem::transmute_copy(&x);
+            let r = Sleef_expd8_u10avx512f(v);
+            let out: Simd<f64, 8> = core::mem::transmute(r);
+            core::mem::transmute_copy::<Simd<f64, 8>, Simd<f64, N>>(&out)
+        }
+    } else {
+        x.exp()
+    }
+}
+
+#[inline(always)]
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
+pub fn vlog<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N>
+{
+    if N == 8 {
+        unsafe {
+            let v: __m512d = core::mem::transmute_copy(&x);
+            let r = Sleef_logd8_u10avx512f(v);
+            let out: Simd<f64, 8> = core::mem::transmute(r);
+            core::mem::transmute_copy::<Simd<f64, 8>, Simd<f64, N>>(&out)
+        }
+    } else {
+        x.ln()
+    }
+}
+
+#[inline(always)]
+#[cfg(not(all(target_arch = "x86_64", target_feature = "avx512f")))]
+pub fn vexp<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N>
+{
+    x.exp()
+}
+
+#[inline(always)]
+#[cfg(not(all(target_arch = "x86_64", target_feature = "avx512f")))]
+pub fn vlog<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N>
+{
+    x.ln()
+}
+
+
 /// 1/√(2π).
 const INV_SQRT_2PI: f64 = 0.398_942_280_401_432_68; // 1/√(2π)
 /// √(2π).
@@ -41,7 +144,7 @@ const INV_SQRT_2: f64 = std::f64::consts::FRAC_1_SQRT_2; // 1/√2
 /// Standard-normal density φ(x) = (1/√(2π)) e^{-x²/2}.
 #[inline]
 pub fn phi_pdf<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N> {
-    Simd::splat(INV_SQRT_2PI) * (Simd::splat(-0.5) * x * x).exp()
+    Simd::splat(INV_SQRT_2PI) * vexp(Simd::splat(-0.5) * x * x)
 }
 
 // ---------------------------------------------------------------------------
@@ -145,7 +248,7 @@ fn horner7<const N: usize>(c: &[f64; 8], z: Simd<f64, N>) -> Simd<f64, N> {
 #[inline]
 pub fn phi_hart<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N> {
     let z = x.abs();
-    let expo = (Simd::splat(-0.5) * z * z).exp();
+    let expo = vexp(Simd::splat(-0.5) * z * z);
     let tail = expo * horner6(&hart::NP, z) / horner7(&hart::DP, z); // ≈ 1 - Φ(z)
     let neg = x.simd_lt(Simd::splat(0.0));
     let res = neg.select(tail, Simd::splat(1.0) - tail);
@@ -168,7 +271,7 @@ const WEST_ZERO_CUTOFF: f64 = 37.0;
 #[inline]
 pub fn phi_west<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N> {
     let z = x.abs();
-    let expo = (Simd::splat(-0.5) * z * z).exp();
+    let expo = vexp(Simd::splat(-0.5) * z * z);
 
     // Rational arm (Hart 5666).
     let tail_rational = expo * horner6(&hart::NP, z) / horner7(&hart::DP, z);
@@ -290,7 +393,7 @@ fn cody_erfc<const N: usize>(y_in: Simd<f64, N>) -> Simd<f64, N> {
             i += 1;
         }
         let r = (xnum + Simd::splat(cody::C[7])) / (xden + Simd::splat(cody::D[7]));
-        (Simd::splat(-1.0) * ysq).exp() * r
+        vexp(Simd::splat(-1.0) * ysq) * r
     };
 
     // Band 3: asymptotic.
@@ -306,12 +409,143 @@ fn cody_erfc<const N: usize>(y_in: Simd<f64, N>) -> Simd<f64, N> {
         }
         let r = zinv * (xnum + Simd::splat(cody::P[4])) / (xden + Simd::splat(cody::Q[4]));
         let r = (Simd::splat(cody::SQRPI) - r) / y;
-        (Simd::splat(-1.0) * ysq).exp() * r
+        vexp(Simd::splat(-1.0) * ysq) * r
     };
 
     let b1 = y.simd_le(Simd::splat(0.5));
     let b3 = y.simd_gt(Simd::splat(4.0));
     b1.select(erfc_b1, b3.select(erfc_b3, erfc_b2))
+}
+
+/// Internal: compute both the merged B2/B3 erfcx value AND the raw B1 rational
+/// `(1 − erf(y))` WITHOUT yet applying the `exp(y²)` factor.
+///
+/// Returns `(b23_value, b1_raw)` where:
+/// - `b23_value` = the B2/B3 merged erfcx selection (correct for `y > 0.5`,
+///   meaningless on B1 lanes but cheap to compute branch-free).
+/// - `b1_raw` = `1 − erf(y)` from the Band-1 rational (no exp applied).
+///
+/// The public `erfcx(y)` wrapper combines them with an `exp(y²)` and the
+/// `y ≤ 0.5` mask. The fused `ig_surv_from_uv` instead uses `b1_raw`
+/// directly, because the surrounding `e^(−u²)·e^(u²)·R1 = R1` cancellation
+/// removes the exp entirely on B1 lanes (Research D fusion B1).
+#[inline]
+fn erfcx_split_b1exp<const N: usize>(
+    y: Simd<f64, N>,
+    ysq: Simd<f64, N>,
+) -> (Simd<f64, N>, Simd<f64, N>) {
+    // Band 1 raw: (1 − erf(y)) without the e^(y²) factor.
+    let b1_raw = {
+        let mut xnum = Simd::splat(cody::A[4]) * ysq;
+        let mut xden = ysq;
+        let mut i = 0;
+        while i < 3 {
+            xnum = (xnum + Simd::splat(cody::A[i])) * ysq;
+            xden = (xden + Simd::splat(cody::B[i])) * ysq;
+            i += 1;
+        }
+        let erf = y * (xnum + Simd::splat(cody::A[3])) / (xden + Simd::splat(cody::B[3]));
+        Simd::splat(1.0) - erf
+    };
+
+    let erfcx_b2 = {
+        let mut xnum = Simd::splat(cody::C[8]) * y;
+        let mut xden = y;
+        let mut i = 0;
+        while i < 7 {
+            xnum = (xnum + Simd::splat(cody::C[i])) * y;
+            xden = (xden + Simd::splat(cody::D[i])) * y;
+            i += 1;
+        }
+        (xnum + Simd::splat(cody::C[7])) / (xden + Simd::splat(cody::D[7]))
+    };
+
+    let erfcx_b3 = {
+        let zinv = Simd::splat(1.0) / ysq;
+        let mut xnum = Simd::splat(cody::P[5]) * zinv;
+        let mut xden = zinv;
+        let mut i = 0;
+        while i < 4 {
+            xnum = (xnum + Simd::splat(cody::P[i])) * zinv;
+            xden = (xden + Simd::splat(cody::Q[i])) * zinv;
+            i += 1;
+        }
+        let r = zinv * (xnum + Simd::splat(cody::P[4])) / (xden + Simd::splat(cody::Q[4]));
+        (Simd::splat(cody::SQRPI) - r) / y
+    };
+
+    let b3 = y.simd_gt(Simd::splat(4.0));
+    let b23 = b3.select(erfcx_b3, erfcx_b2);
+    (b23, b1_raw)
+}
+
+/// Scaled complementary error function `erfcx(y) = e^(y²)·erfc(y)`, for `y ≥ 0`.
+///
+/// The Jäckel rational solver's precision-preserving normalized Black price
+/// (`black::b_normalized`) needs `erfcx` because the cancellation in the
+/// direct form `Φ(d₁) − Φ(d₂)` kills mantissa bits in the centre. Cody's
+/// rational structure gives `erfcx` essentially for free in two of three
+/// bands — the `e^(−y²)` factor that `erfc` carries simply isn't formed.
+///
+/// Branch-free over Cody's three bands. Caller responsible for `y ≥ 0`;
+/// negative arguments must be handled via `erfcx(−y) = 2·e^(y²) − erfcx(y)`.
+#[inline]
+pub fn erfcx<const N: usize>(y_in: Simd<f64, N>) -> Simd<f64, N> {
+    // erfcx(y) = e^(y²)·erfc(y). For Cody's three bands:
+    //   Band 1 (y ≤ 0.5): erfc = 1 − erf,  so erfcx = e^(y²)·(1 − erf). Needs exp.
+    //   Band 2 (0.5 < y ≤ 4): Cody's form is (C/D)·e^(−y²), so erfcx = C/D directly. No exp.
+    //   Band 3 (y > 4):       Cody's form is asymp·e^(−y²)/y, so erfcx = asymp/y. No exp.
+    let y = y_in.abs();
+    let ysq = y * y;
+    let (b23, b1_raw) = erfcx_split_b1exp(y, ysq);
+    let erfcx_b1 = vexp(ysq) * b1_raw;
+    let b1 = y.simd_le(Simd::splat(0.5));
+    b1.select(erfcx_b1, b23)
+}
+
+/// Fused IG survival `S(x; μ) = ½·e^(−u²)·[erfcx(u) − erfcx(v)]` in one shot.
+///
+/// Three analytic fusions (Research D, 2026-05-31) collapse dead `exp` work:
+/// - **F3**: on `u < 0` lanes the reflection `erfcx(−|u|) = 2·e^(u²) − erfcx(|u|)`
+///   has its `e^(u²)` cancel analytically with the outer `½·e^(−u²)`.
+/// - **B1**: on `|u| ≤ 0.5` lanes the Cody Band-1 form
+///   `erfcx(|u|) = e^(u²)·(1 − erf(|u|))` has its internal `e^(u²)` cancel
+///   with the outer `e^(−u²)` — we use the raw `(1 − erf)` directly.
+/// - **Reciprocal**: folding the reflection into the bracket means only
+///   `e^(−u²)` is needed (one exp per lane, period — no second `e^(+u²)`).
+///
+/// Caller guarantees `v ≥ 0`. `u` may be signed.
+#[inline]
+pub fn ig_surv_from_uv<const N: usize>(
+    u: Simd<f64, N>,
+    v: Simd<f64, N>,
+) -> Simd<f64, N> {
+    let abs_u = u.abs();
+    let u2 = u * u;
+
+    // Split erfcx(|u|) into B2/B3 value and B1 raw (1 − erf), no exp on B1.
+    let (e_u_b23, r1_u) = erfcx_split_b1exp(abs_u, u2);
+    let is_b1_u = abs_u.simd_le(Simd::splat(0.5));
+
+    // v ≥ 0 always (caller contract); full erfcx path.
+    let erfcx_v = erfcx(v);
+
+    // One exp per lane, period.
+    let em_u2 = vexp(-u2);
+
+    // B1 fusion: e^(−u²)·erfcx(|u|) = e^(−u²)·e^(u²)·R1 = R1  on B1 lanes.
+    //            e^(−u²)·erfcx(|u|) = e^(−u²)·B23           on B2/B3 lanes.
+    let term_u = is_b1_u.select(r1_u, em_u2 * e_u_b23);
+    let term_v = em_u2 * erfcx_v;
+
+    let half = Simd::splat(0.5);
+    // Positive-u branch: S = ½·e^(−u²)·[erfcx(u) − erfcx(v)] = ½·(term_u − term_v).
+    let surv_pos = half * (term_u - term_v);
+    // Negative-u branch: erfcx(u) = 2·e^(u²) − erfcx(|u|); the ½·e^(−u²)·2·e^(u²)
+    // collapses analytically to 1, giving S = 1 − ½·(term_u + term_v).
+    let surv_neg = Simd::splat(1.0) - half * (term_u + term_v);
+
+    u.is_sign_negative().select(surv_neg, surv_pos)
 }
 
 /// Cody 1969 cumulative normal. Branch-free; ~1e-18 absolute error.
@@ -413,7 +647,7 @@ pub fn phi_inv<const N: usize>(p_in: Simd<f64, N>) -> Simd<f64, N> {
     // `q = √(−2 ln(min(p, 1−p)))` and flip its sign for the upper tail.
     let lower = p.simd_lt(Simd::splat(acklam::LOW));
     let p_tail = lower.select(p, Simd::splat(1.0) - p);
-    let qt = (Simd::splat(-2.0) * p_tail.ln()).sqrt();
+    let qt = (Simd::splat(-2.0) * vlog(p_tail)).sqrt();
     let num_t = (((((Simd::splat(c[0]) * qt + Simd::splat(c[1])) * qt + Simd::splat(c[2])) * qt
         + Simd::splat(c[3]))
         * qt
@@ -553,6 +787,45 @@ mod tests {
             approx_eq(phi_hart(p)[0] + phi_hart(m)[0], 1.0, 1e-12);
             approx_eq(phi_cody(p)[0] + phi_cody(m)[0], 1.0, 1e-15);
         }
+    }
+
+    #[test]
+    fn erfcx_matches_identity_in_centre() {
+        // erfcx(y) = e^(y²)·erfc(y) — check against this identity for moderate
+        // y (where e^(y²)·erfc(y) doesn't underflow/overflow).
+        for y in [0.0_f64, 0.1, 0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 3.0, 4.0] {
+            let got = erfcx(f64x8::splat(y))[0];
+            // erfc via the existing path (cody_erfc) then scale.
+            let erfc_y = cody_erfc(f64x8::splat(y))[0];
+            let expected = (y * y).exp() * erfc_y;
+            assert!(
+                (got - expected).abs() < 1e-13 * expected.max(1e-12),
+                "erfcx({y}): got {got}, expected {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn erfcx_large_argument_asymptotic() {
+        // For large y: erfcx(y) ≈ 1/(y·√π).
+        let one_over_sqrt_pi = 0.564_189_583_547_756_3_f64;
+        for y in [5.0_f64, 8.0, 12.0, 20.0] {
+            let got = erfcx(f64x8::splat(y))[0];
+            let asymp = one_over_sqrt_pi / y;
+            // First-order error is O(1/y²), so relative err ≈ 1/(2y²).
+            let rel = (got - asymp).abs() / asymp;
+            assert!(
+                rel < 0.5 / (y * y),
+                "erfcx({y}): {got} vs asymp {asymp} rel={rel}"
+            );
+        }
+    }
+
+    #[test]
+    fn erfcx_at_zero_is_one() {
+        // erfcx(0) = e^0 · erfc(0) = 1·1 = 1.
+        let got = erfcx(f64x8::splat(0.0))[0];
+        assert!((got - 1.0).abs() < 1e-15, "erfcx(0) = {got}, expected 1");
     }
 
     #[test]

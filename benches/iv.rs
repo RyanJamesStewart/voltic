@@ -41,6 +41,19 @@ fn iv_bench(c: &mut Criterion) {
                 black_box(r);
             });
         });
+        group.bench_with_input(BenchmarkId::new("rational_jackel", n), &ds, |b, ds| {
+            b.iter(|| {
+                let r = voltic::implied_vol_rational(
+                    black_box(&ds.spot),
+                    black_box(&ds.strike),
+                    black_box(&ds.tte),
+                    black_box(&ds.rate),
+                    black_box(&ds.price),
+                    black_box(&ds.kind),
+                );
+                black_box(r);
+            });
+        });
     }
     group.finish();
 }

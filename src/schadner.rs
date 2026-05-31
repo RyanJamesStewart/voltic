@@ -90,14 +90,14 @@ fn ig_cdf_pdf(x: V, mu: V) -> (V, V) {
     // Survival: Φ(−a + 1/√x) − e^{2/μ}·Φ(−a − 1/√x).
     let term1 = norm::phi_hart(-a + inv_sqrt_x);
     let term2 = norm::phi_hart(-a - inv_sqrt_x);
-    let surv = term1 - (V::splat(2.0) / mu).exp() * term2;
+    let surv = term1 - norm::vexp(V::splat(2.0) / mu) * term2;
     let cdf = V::splat(1.0) - surv;
 
     // Density: (2π x³)^(−1/2) · exp(−(x−μ)²/(2 μ² x)).
     let two_pi = V::splat(2.0 * core::f64::consts::PI);
     let inv_norm = (two_pi * x * x * x).sqrt();
     let dx = x - mu;
-    let expo = (-(dx * dx) / (V::splat(2.0) * mu * mu * x)).exp();
+    let expo = norm::vexp(-(dx * dx) / (V::splat(2.0) * mu * mu * x));
     let pdf = expo / inv_norm;
     (cdf, pdf)
 }
@@ -110,11 +110,11 @@ fn ig_cdf_pdf(x: V, mu: V) -> (V, V) {
 fn solve_chunk_explicit(s: V, k: V, t: V, r: V, price: V, is_call: M, valid: M) -> V {
     let nan = V::splat(f64::NAN);
     let sqrt_t = t.sqrt();
-    let df = (-r * t).exp(); // e^{−rT}
+    let df = norm::vexp(-r * t); // e^{−rT}
     let fwd = s / df; // forward F = S·e^{rT}
-    let k_log = (k / fwd).ln(); // k = ln(K/F)
+    let k_log = norm::vlog(k / fwd); // k = ln(K/F)
     let ak = k_log.abs();
-    let ek = k_log.exp(); // e^k = K/F
+    let ek = norm::vexp(k_log); // e^k = K/F
 
     // m = 1 for K > F (k > 0); m = K/F = e^k for K < F.
     let m = k_log.simd_gt(V::splat(0.0)).select(V::splat(1.0), ek);

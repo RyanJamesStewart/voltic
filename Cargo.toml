@@ -1,9 +1,10 @@
 [package]
 name = "voltic"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
+build = "build.rs"
 rust-version = "1.94"
-description = "Vectorized Black-Scholes implied-volatility solver."
+description = "Vectorized Black-Scholes implied-volatility solver — direct Newton, Schadner inverse-Gaussian, and Jäckel rational kernels."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/RyanJamesStewart/voltic"
 keywords = ["finance", "options", "implied-volatility", "simd", "black-scholes"]
@@ -36,6 +37,10 @@ harness = false
 name = "bench"
 path = "bench/main.rs"
 
+[[bin]]
+name = "rational_iv"
+path = "bench/rational_iv.rs"
+
 [profile.release]
 opt-level = 3
 codegen-units = 1
@@ -45,3 +50,8 @@ lto = "thin"
 opt-level = 3
 codegen-units = 1
 lto = "thin"
+
+
+[[bin]]
+name = "kernel_nan"
+path = "bench/kernel_nan.rs"
