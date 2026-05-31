@@ -1,6 +1,8 @@
 /target
 /Cargo.lock
 /*.csv
+bench/python/*.csv
+bench/python/*.log
 __pycache__/
 *.pyc
 /.venv/

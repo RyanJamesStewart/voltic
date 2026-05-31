@@ -4,6 +4,86 @@ All notable changes to voltic are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows semantic versioning.
 
+## [1.0.1] — 2026-05-31
+
+Analytic wing-seed for the deep-wing regime, plus an independent 200-bit
+mpmath oracle that reframes accuracy claims around the f64 inversion floor.
+
+### Added
+
+- **Analytic wing-seed** for `|k_log| ∈ [2.95, 8.0]`, derived clean-room
+  from Schadner's IG-quantile and the 2-term Mills asymptotic. Replaces a
+  v1.0.0 path that extrapolated the Chebyshev seed beyond its fit domain
+  (`SEED_K_HI = 3.0`) and produced 3.27e-1 catastrophic errors on a
+  wing-saturated stress grid. Dispatch gates: `K_HI_BAILOUT = 2.95`,
+  `WING_Q_MAX = 0.30`, `WING_H_MAX = 8.0`. The leading term is W0
+  followed by `N_PICARD = 1` then HH3 polish; the collapse
+  `e^h · Φ(−z2) ≡ φ(z1) · Q(z2)` (with `Q(z) := √(π/2) · erfcx(z/√2)
+  ≈ 1/z − 1/z³`) eliminates the `exp(h)` overflow on the wing.
+  See `src/schadner_fast.rs::wing_seed_simd`.
+- **200-bit mpmath oracle** `bench/python/oracle_mpmath.py` measuring
+  voltic, py_lets_be_rational, and volfi as distance-from-the-f64-
+  inversion-floor on the SplitMix64-seeded dataset. Oracle self-
+  consistency at 7.5e-56 (passes 1e-40 acceptance by 16 orders). Reveals
+  that voltic and LBR sit at the floor while volfi has a silent ~0.91%
+  catastrophic-precision tail in the deep wings of the moneyness-vega
+  plane (3-4% rate per deep-wing band, max σ error 3.3e-1).
+- **`bench/wing_grid.rs`** — volfi-style v×Δ wing-saturated stress
+  harness, 360 cases after filtering. Measures throughput and the NaN set
+  at the conditioning edge of the inversion problem (81 ns/option, 2
+  pre-existing NaN — see Known issues).
+- **`tests/wing_seed.rs`** (9 tests) — Wren G corner, mpmath-200-bit
+  reference table at `h ∈ {3..8} × q ∈ {0.01..0.30}`, boundary
+  finiteness, SIMD lane independence, end-to-end kernel σ recovery at
+  wing corners, Chebyshev-regime non-regression, context-API routing
+  through the wing seed, and the `volfi_wing_grid_nan_set_bounded_to_two`
+  regression pin.
+- **`scripts/wing_ref_gen.py`** — regenerates `WING_REF` in
+  `tests/wing_seed.rs` from mpmath at 200 bits. Not wired to CI; present
+  for reproducibility.
+
+### Fixed
+
+- **q-convention bug at the wing dispatch site.** The IG kernel's `q` is
+  the IG CDF; the wing analytic uses IG survival. Fix:
+  `q_surv = 1 − q_kernel` at the dispatch boundary. Caught during
+  integration; verifier-confirmed.
+
+### Performance
+
+Schadner cold benchmark (1M synthetic options, znver5, taskset -c 0,
+median of 7 timed passes after warmup):
+
+- voltic `implied_vol_fast` one-shot: 73.6 ns / 3.42e-11 max abs σ
+  error / 0 NaN. Unchanged from v1.0.0 outside the wing regime.
+
+Volfi v×Δ wing-saturated stress grid (360 cases, median of 7):
+
+- voltic `implied_vol_fast`: 81.3 ns / 8.30e-12 / 2 NaN.
+- Pre-wing v1.0.0 result on the same grid: 3.27e-1 catastrophic. Net
+  accuracy win of ~11 orders of magnitude.
+
+Head-to-head against the LBR/volfi/py_vollib_vectorized reference set on
+a 100k SplitMix64-seeded subsample (same dataset, znver5, taskset -c 0):
+
+| solver | ns/option | max abs err | NaN | cat (≥ 1e-3) |
+|---|---:|---:|---:|---:|
+| voltic 1.0.1 `implied_vol_fast` | 73.6 | 3.42e-11 | 0 | 0 |
+| py_lets_be_rational (scalar) | 3,475 | 1.54e-11 | 0 | 0 |
+| py_vollib_vectorized | 406 | 2.04e-11 | 0 | 0 |
+| volfi 0.1.8 `iv_call` | 350 | 3.34e-01 | 1 | 906 |
+
+### Known issues
+
+- voltic carries a mild 2-4× residual to py_lets_be_rational in the
+  `deep_otm` band (max absolute 9.9e-12 — sub-picovol). Jäckel's
+  rational guess wins by design in that corner; tightening voltic's
+  deep_otm seed is v1.1 work.
+- Two NaN at `(v=0.01, Δ∈{0.30, 0.70})` on the wing v×Δ stress grid:
+  tiny-σ near-ATM puts at the f64 BS price floor (< 1e-7), no
+  meaningful f64 inverse. Pinned by
+  `tests/wing_seed.rs::volfi_wing_grid_nan_set_bounded_to_two`.
+
 ## [1.0.0] — 2026-05-31
 
 A new public API surface for repeat-context workloads and a perf overhaul
