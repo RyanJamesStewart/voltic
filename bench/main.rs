@@ -26,8 +26,8 @@ mod phi;
 
 use std::time::Instant;
 use voltic::{
-    broadcast_context, canonical_c_from_price, implied_vol_vectorized_with_contexts,
-    implied_vol_with_context, implied_vol_with_context_batch, OptionKind, OtmContext,
+    canonical_c_from_price, implied_vol_vectorized_with_contexts, implied_vol_with_context,
+    implied_vol_with_context_batch, OptionKind, OtmContext,
 };
 
 const REPEATS: usize = 7;
@@ -347,16 +347,16 @@ fn main() {
     // Generate n prices that all land in the seed domain of ctx0. Cheap and
     // arbitrary — we use canonical_c[i % n] mod a clamp to ensure validity.
     let mut repeat_c: Vec<f64> = Vec::with_capacity(n);
-    for i in 0..n {
+    for &c_i in canonical_c.iter().take(n) {
         // Wrap around dataset; clamp to (0, 1) just in case.
-        let c = canonical_c[i].clamp(1e-6, 1.0 - 1e-6);
+        let c = c_i.clamp(1e-6, 1.0 - 1e-6);
         repeat_c.push(c);
     }
     // Scalar single-eval on shared context (volfi shape match).
     let repeat_scalar_ns = time_ns_per_option(n, || {
         let mut acc = 0usize;
-        for i in 0..n {
-            let v = implied_vol_with_context(&ctx0, repeat_c[i]);
+        for &c_i in repeat_c.iter().take(n) {
+            let v = implied_vol_with_context(&ctx0, c_i);
             acc += (!v.is_nan()) as usize;
         }
         acc
@@ -486,9 +486,7 @@ fn main() {
         for ctx in packed.iter() {
             let take = core::cmp::min(8, n - i_local);
             let mut cb = [0.0_f64; 8];
-            for j in 0..take {
-                cb[j] = canonical_c[i_local + j];
-            }
+            cb[..take].copy_from_slice(&canonical_c[i_local..i_local + take]);
             // Re-using the solver via the existing public `OtmContextSimd`
             // type isn't directly callable from outside the crate (the
             // solve helper is private), so this bench reaches the same

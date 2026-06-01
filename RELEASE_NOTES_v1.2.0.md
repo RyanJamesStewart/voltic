@@ -19,14 +19,6 @@ seven outcomes the bare-NaN API conflates: `Computed`, `BelowVolMin
 `AboveVolMax` carry the sigma the iteration actually found, so a caller
 who wants to accept sub-VOL_MIN or super-VOL_MAX vols can.
 
-Why this matters: a public IV solver that returns regime information
-alongside the sigma, with an mpmath-verified accept criterion bounded by
-the row's own sigma-resolution budget (1e-6 absolute), is a first as
-far as we have seen. Surveys of the open implementations
-(py_lets_be_rational, AQFED.jl, FlashIV, volfi) all collapse the
-boundary states into either a bare NaN or a single sentinel value.
-voltic v1.2 surfaces the structure.
-
 ## Added
 
 - Typed result API (`implied_vol_typed`, `implied_vol_typed_batch`).
@@ -70,12 +62,26 @@ voltic v1.2 surfaces the structure.
 
 ## CI
 
-- Pinned the nightly toolchain in `.github/workflows/ci.yml` so
-  rustfmt and clippy stop drifting between runs.
-- Removed `cargo clippy --all-targets -- -D warnings` from CI: it
-  cannot pass without restructuring the Sleef SIMD bindings in
-  `src/norm.rs` (190+ `improper_ctypes` warnings) and was failing
-  the v1.0.0 through v1.1.0 runs. `cargo test --release` is the real
-  correctness gate and is preserved.
+- Pinned the nightly toolchain in `.github/workflows/ci.yml` to
+  `nightly-2026-05-12` so rustfmt and clippy rules stop drifting
+  between runs.
+- Crate-level `#![allow]` attributes added with one-line reasons:
+  `improper_ctypes` on `src/norm.rs` (Sleef SIMD FFI vector types
+  are not Rust-FFI-safe by spec); `clippy::excessive_precision` on
+  `src/schadner_fast.rs` (Chebyshev seed coefficients in the
+  include!()-d seed file carry beyond-f64 digits as published);
+  `clippy::absurd_extreme_comparisons`, `clippy::assign_op_pattern`,
+  `clippy::manual_clamp`, `clippy::manual_range_contains`, and
+  `unused_imports`/`unused_variables`/`dead_code` on
+  `src/schadner_fast.rs` (protected hot path per v1.2 byte-identity
+  rule); `clippy::manual_clamp`, `clippy::manual_memcpy`,
+  `clippy::manual_div_ceil`, and `non_snake_case` on
+  `src/otm_context.rs` (NaN-clamp semantics, manual SIMD copy paths,
+  and SIMD mask type naming); `clippy::excessive_precision` on
+  `tests/wing_seed.rs` (published mpmath-200-bit reference table).
+- Bench files passed clippy after small mechanical hygiene fixes
+  (iterator-style loops, `writeln!`, `copy_from_slice`, range
+  contains, type aliases).
+- `cargo clippy --all-targets -- -D warnings` runs clean.
 
 More info: ryan@databa.ai

@@ -4,9 +4,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use voltic::{implied_vol_typed_batch, ImpliedVolStatus, OptionKind};
 
-fn parse_csv(
-    path: &str,
-) -> (
+type CsvCols = (
     Vec<f64>,
     Vec<f64>,
     Vec<f64>,
@@ -14,7 +12,9 @@ fn parse_csv(
     Vec<f64>,
     Vec<f64>,
     Vec<OptionKind>,
-) {
+);
+
+fn parse_csv(path: &str) -> CsvCols {
     let f = File::open(path).expect("open csv");
     let r = BufReader::new(f);
     let mut s = Vec::new();

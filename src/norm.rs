@@ -27,6 +27,7 @@
 //! `scripts/plot_phi.py` for the frontier.)
 
 #![allow(clippy::excessive_precision)] // published kernel coefficients are written as published
+#![allow(improper_ctypes)] // Sleef SIMD FFI: vector types are not Rust-FFI-safe by spec
 
 use std::simd::prelude::*;
 use std::simd::StdFloat;

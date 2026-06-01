@@ -23,6 +23,8 @@
 //! `// FALSIFY:` comments — those name the input that broke an earlier
 //! draft of the test.)
 #![feature(portable_simd)]
+// Published mpmath-200-bit reference table; literal precision is the test's published ground truth.
+#![allow(clippy::excessive_precision)]
 
 use std::simd::prelude::*;
 use voltic::implied_vol_fast;

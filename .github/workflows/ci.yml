@@ -13,9 +13,10 @@ jobs:
         # and clippy rules between runs, which has historically broken
         # CI on unchanged code. Bump deliberately, not by accident.
         run: |
-          rustup toolchain install nightly-2026-05-12 --profile minimal --component rustfmt
+          rustup toolchain install nightly-2026-05-12 --profile minimal --component rustfmt,clippy
           rustup default nightly-2026-05-12
       - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test --release
       - name: quick benchmark smoke run
         run: cargo run --release --bin bench -- --n 20000

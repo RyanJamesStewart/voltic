@@ -1,7 +1,6 @@
 //! Diagnostic: count kernel-level NaN (before the wrapper fallback) on the
 //! same synthetic dataset the bench harness uses. Reports overall + per-band.
 //! Conductor-scope only; not part of the public surface.
-#![feature(portable_simd)]
 
 #[path = "data.rs"]
 mod data;
@@ -30,8 +29,7 @@ fn main() {
     let mut otm_max_err = 0.0_f64;
     let mut itm_max_err = 0.0_f64;
 
-    for i in 0..n {
-        let v = raw[i];
+    for (i, &v) in raw.iter().enumerate().take(n) {
         let is_nan = v.is_nan();
         if is_nan {
             tot_nan += 1;

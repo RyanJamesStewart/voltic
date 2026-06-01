@@ -5,9 +5,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use voltic::{implied_vol_typed_batch, ImpliedVolStatus, OptionKind};
 
-fn parse_adv(
-    path: &str,
-) -> (
+type AdvCols = (
     Vec<f64>,
     Vec<f64>,
     Vec<f64>,
@@ -16,7 +14,9 @@ fn parse_adv(
     Vec<OptionKind>,
     Vec<String>,
     Vec<String>,
-) {
+);
+
+fn parse_adv(path: &str) -> AdvCols {
     let f = File::open(path).expect("open csv");
     let r = BufReader::new(f);
     let mut s = Vec::new();
@@ -87,7 +87,7 @@ fn main() {
     write!(out, "[").unwrap();
     for (i, res) in typed.iter().enumerate() {
         if i > 0 {
-            write!(out, ",\n").unwrap();
+            writeln!(out, ",").unwrap();
         }
         let value_str = if res.value.is_finite() {
             format!("{}", res.value)
@@ -109,6 +109,6 @@ fn main() {
         )
         .unwrap();
     }
-    write!(out, "]\n").unwrap();
+    writeln!(out, "]").unwrap();
     eprintln!("wrote {} rows to {}", n, json_out);
 }

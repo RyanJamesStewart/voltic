@@ -33,6 +33,15 @@
 //! contract for callers that already know they're in the well-conditioned
 //! regime (e.g. surface-fit code that screens its own grid).
 
+// Protected hot path: `.clamp()` differs on NaN inputs from `.max().min()`.
+#![allow(clippy::manual_clamp)]
+// Protected hot path per v1.2 release rule (byte-identical to v1.1.0).
+#![allow(clippy::manual_memcpy)]
+// Protected hot path per v1.2 release rule (byte-identical to v1.1.0).
+#![allow(clippy::manual_div_ceil)]
+// `_phantom_use_M` matches the SIMD mask type name.
+#![allow(non_snake_case)]
+
 use std::simd::prelude::*;
 use std::simd::StdFloat;
 

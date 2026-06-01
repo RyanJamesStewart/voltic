@@ -51,6 +51,19 @@
 //!
 //! [wol-fi/volfi]: https://github.com/wol-fi/volfi
 
+// Protected hot path per v1.2 release rule (byte-identical to v1.1.0).
+#![allow(clippy::absurd_extreme_comparisons)]
+// Protected hot path per v1.2 release rule (byte-identical to v1.1.0).
+#![allow(clippy::assign_op_pattern)]
+// Protected hot path: `.clamp()` differs on NaN inputs from `.max().min()`.
+#![allow(clippy::manual_clamp)]
+// Protected hot path per v1.2 release rule (byte-identical to v1.1.0).
+#![allow(clippy::manual_range_contains)]
+// Protected hot path; cleanup deferred until the byte-identity constraint relaxes.
+#![allow(unused_imports, unused_variables, dead_code)]
+// Chebyshev seed coefficients in include!()-d schadner_fast_seed.rs carry beyond-f64 digits intentionally; the literal precision is the published kernel.
+#![allow(clippy::excessive_precision)]
+
 use std::simd::prelude::*;
 use std::simd::StdFloat;
 

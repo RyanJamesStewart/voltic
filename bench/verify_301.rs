@@ -14,9 +14,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use voltic::{implied_vol_fast, implied_vol_typed_batch, ImpliedVolStatus, OptionKind};
 
-fn parse_csv(
-    path: &str,
-) -> (
+type CsvCols = (
     Vec<f64>,
     Vec<f64>,
     Vec<f64>,
@@ -24,7 +22,9 @@ fn parse_csv(
     Vec<f64>,
     Vec<f64>,
     Vec<OptionKind>,
-) {
+);
+
+fn parse_csv(path: &str) -> CsvCols {
     let f = File::open(path).expect("open csv");
     let r = BufReader::new(f);
     let mut s = Vec::new();
@@ -67,7 +67,7 @@ fn analyze(label: &str, csv: &str) {
     let typed = implied_vol_typed_batch(&s, &k, &t, &r, &p, &kind);
 
     // Find the rows where f_fast returned NaN.
-    let mut nan_idx: Vec<usize> = (0..n).filter(|&i| f_fast[i].is_nan()).collect();
+    let nan_idx: Vec<usize> = (0..n).filter(|&i| f_fast[i].is_nan()).collect();
     println!("implied_vol_fast NaN count: {}", nan_idx.len());
 
     // Tally typed status on those.

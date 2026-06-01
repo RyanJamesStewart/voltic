@@ -66,7 +66,7 @@ fn phi_inv(p: f64) -> f64 {
     }
 }
 
-fn build_grid() -> (
+type GridCols = (
     Vec<f64>,
     Vec<f64>,
     Vec<f64>,
@@ -74,7 +74,9 @@ fn build_grid() -> (
     Vec<f64>,
     Vec<OptionKind>,
     Vec<f64>,
-) {
+);
+
+fn build_grid() -> GridCols {
     let mut s = Vec::new();
     let mut k = Vec::new();
     let mut t = Vec::new();
@@ -88,7 +90,7 @@ fn build_grid() -> (
     let sqrt_t: f64 = tte.sqrt();
     for vi in 0..V_GRID_N {
         let v = V_GRID_START + V_GRID_STEP * vi as f64;
-        if v < V_GRID_START || v > 2.0 {
+        if !(V_GRID_START..=2.0).contains(&v) {
             continue;
         }
         for &dlt in D_GRID.iter() {
@@ -198,7 +200,7 @@ fn main() {
             (1.0 - c) / m
         };
         let q_surv = 1.0 - q_cdf;
-        let in_wing = h >= 2.95 && h < 8.0 && q_surv > 0.0 && q_surv < 0.30;
+        let in_wing = (2.95..8.0).contains(&h) && q_surv > 0.0 && q_surv < 0.30;
         if !solved[i].is_nan() {
             let e = (solved[i] - sigma_true[i]).abs();
             if in_wing {

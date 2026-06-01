@@ -54,6 +54,8 @@ enum ExpectedStatus {
     BelowIntrinsic,
     AboveMaximum,
     NonFinite,
+    // Variant present for typed-API completeness; not exercised by current bench grid.
+    #[allow(dead_code)]
     FailedToConverge,
     /// Row is allowed to land in multiple honest statuses; the bench records
     /// the actual choice but doesn't penalize.
@@ -373,6 +375,10 @@ fn build_grid() -> Vec<Row> {
                 OptionKind::Put
             };
             let p = price_at(s, k, t, r, sigma, kind);
+            // Documented duplicate branches: both magnitude regimes resolve to Either
+            // (Computed vs FailedToConverge depending on price magnitude) but are kept
+            // distinct as bench documentation.
+            #[allow(clippy::if_same_then_else)]
             let expected = if p > 1e-15 && p < (s.max(k) * 0.9) {
                 ExpectedStatus::Either // could be Computed or FailedToConverge depending on price magnitude
             } else {
@@ -528,6 +534,10 @@ fn build_grid() -> Vec<Row> {
                         OptionKind::Put
                     };
                     let p = price_at(s, k, t, r, sigma, kind);
+                    // Documented duplicate branches: sub-VOL_MIN and super-VOL_MAX rows both
+                    // resolve to Either (BelowVolMin/AboveVolMax or FailedToConverge depending
+                    // on price) but are kept distinct as bench documentation.
+                    #[allow(clippy::if_same_then_else)]
                     let expected = if sigma < VOL_MIN {
                         ExpectedStatus::Either // BelowVolMin or FailedToConverge depending on price
                     } else if sigma > VOL_MAX {
@@ -644,7 +654,7 @@ fn main() {
         *counts.entry(status_label(r.status)).or_insert(0_usize) += 1;
     }
     let mut sorted: Vec<_> = counts.into_iter().collect();
-    sorted.sort_by(|a, b| b.1.cmp(&a.1));
+    sorted.sort_by_key(|x| std::cmp::Reverse(x.1));
     println!("\nTyped status distribution:");
     for (s, c) in &sorted {
         println!(

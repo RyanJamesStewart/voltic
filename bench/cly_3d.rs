@@ -31,7 +31,7 @@
 //!   * voltic `implied_vol_fast`                  — Schadner-cold + Cheb+Halley
 //!   * voltic `implied_vol_vectorized_with_contexts` — cold per-row context API
 //!   * (LBR / py_vollib_vectorized / volfi are run from the Python harness
-//!      `bench/python/cly_3d_compare.py` on the same `cly3d_data.csv`)
+//!     `bench/python/cly_3d_compare.py` on the same `cly3d_data.csv`)
 //!
 //! Output CSV `cly3d_data.csv` columns: `spot,strike,tte,rate,price,sigma_true,kind`
 //! consumed by the Python harness for cross-solver comparison.
@@ -106,6 +106,8 @@ fn build_grid() -> (
     (s_v, k_v, t_v, r_v, p_v, kind_v, sig_v)
 }
 
+// Bench harness shape; refactor deferred.
+#[allow(clippy::too_many_arguments)]
 fn write_csv(
     path: &str,
     s: &[f64],

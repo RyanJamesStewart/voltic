@@ -27,7 +27,7 @@
 //!   * voltic `implied_vol_fast`                      — Cheb+Halley fast kernel
 //!   * voltic `implied_vol_vectorized_with_contexts`  — cold per-row context API
 //!   * (LBR / py_vollib_vectorized / volfi are run from the Python harness
-//!      `bench/python/atm_dense_compare.py` on the same `atm_dense_data.csv`)
+//!     `bench/python/atm_dense_compare.py` on the same `atm_dense_data.csv`)
 //!
 //! Output CSV `atm_dense_data.csv` columns:
 //!   spot,strike,tte,rate,price,sigma_true,kind
@@ -112,6 +112,8 @@ fn build_grid() -> (
     (s_v, k_v, t_v, r_v, p_v, kind_v, sig_v)
 }
 
+// Bench harness shape; refactor deferred.
+#[allow(clippy::too_many_arguments)]
 fn write_csv(
     path: &str,
     s: &[f64],

@@ -39,8 +39,10 @@ Verified
 
 CI
 
-- Pinned the nightly toolchain in `.github/workflows/ci.yml` to a fixed snapshot so rustfmt and clippy stop drifting between runs (the v1.0.0 through v1.1.0 CI runs were failing on `cargo fmt --check` because nightly rustfmt rules shifted out from under the unchanged codebase). Reformatted pre-existing sources under the pinned toolchain to clear the `cargo fmt --check` step.
-- Removed `cargo clippy --all-targets -- -D warnings` from CI. The Sleef SIMD bindings in `src/norm.rs` produce 190+ `improper_ctypes` warnings that cannot be silenced without restructuring the binding architecture, and nightly clippy escalated two existing comparisons against const-zero loop bounds to hard errors. Both are pre-existing v1.0.0 conditions; the CI step was always going to fail. The test job (`cargo test --release`) is the real correctness gate and is preserved.
+- Pinned the nightly toolchain in `.github/workflows/ci.yml` to `nightly-2026-05-12` so rustfmt and clippy rules stop drifting between runs (the v1.0.0 through v1.1.0 CI runs were failing on `cargo fmt --check` because nightly rustfmt rules shifted out from under the unchanged codebase). Reformatted pre-existing sources under the pinned toolchain to clear the `cargo fmt --check` step.
+- Crate-level `#![allow]` attributes added with one-line reasons: `improper_ctypes` on `src/norm.rs` (Sleef SIMD FFI vector types are not Rust-FFI-safe by spec); `clippy::excessive_precision` on `src/schadner_fast.rs` (Chebyshev seed coefficients in the include!()-d seed file carry beyond-f64 digits as published); `clippy::absurd_extreme_comparisons`, `clippy::assign_op_pattern`, `clippy::manual_clamp`, `clippy::manual_range_contains`, and `unused_imports`/`unused_variables`/`dead_code` on `src/schadner_fast.rs` (protected hot path per v1.2 byte-identity rule); `clippy::manual_clamp`, `clippy::manual_memcpy`, `clippy::manual_div_ceil`, and `non_snake_case` on `src/otm_context.rs` (NaN-clamp semantics, manual SIMD copy paths, and SIMD mask type naming); `clippy::excessive_precision` on `tests/wing_seed.rs` (published mpmath-200-bit reference table).
+- Bench files passed clippy after small mechanical hygiene fixes (iterator-style loops, `writeln!`, `copy_from_slice`, range contains, type aliases).
+- `cargo clippy --all-targets -- -D warnings` runs clean.
 
 ## [1.1.0] - 2026-05-31
 
