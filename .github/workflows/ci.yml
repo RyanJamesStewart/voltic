@@ -6,6 +6,12 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      # CI runners are generic x86-64; the repo's .cargo/config.toml
+      # pins target-cpu=znver5 for local AVX-512 codegen, which SIGILLs
+      # on the Actions runner CPU. Override to a portable baseline that
+      # still keeps AVX2 so the lints + tests are meaningful.
+      RUSTFLAGS: "-C target-cpu=x86-64-v3"
     steps:
       - uses: actions/checkout@v5
       - name: install pinned nightly (voltic core uses std::simd)
