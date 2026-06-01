@@ -23,9 +23,9 @@ Requires a **nightly Rust toolchain** (`std::simd`, `#![feature(portable_simd)]`
 
 ## Headline
 
-voltic and py_lets_be_rational sit at the f64 inversion floor across 100,000 SplitMix64-seeded options. volfi has a silent ~0.91% catastrophic-precision tail in the deep wings of the moneyness-vega plane (3-4% failure rate inside each deep-wing band; max σ error 3.3e-1).
+voltic sits at the f64 inversion floor across 100,000 SplitMix64-seeded options, tied with py_lets_be_rational on accuracy and 48 times faster at f64x8 SIMD throughput. Verification is an independent 200-bit mpmath oracle (`bench/python/oracle_mpmath.py`) that inverts each option's f64-rounded BS price to the floor it can be inverted to; the f64 solvers' errors are reported relative to that floor. Oracle self-consistency at 7.5e-56 passes the 1e-40 acceptance threshold by 16 orders of magnitude.[^1]
 
-Verification: an independent 200-bit mpmath oracle (`bench/python/oracle_mpmath.py`) inverts each option's f64-rounded BS price to the floor it can be inverted to; the f64 solvers' errors are reported relative to that floor. Oracle self-consistency at 7.5e-56 passes the 1e-40 acceptance threshold by 16 orders of magnitude.
+The accuracy table below also surfaces a ~0.91% catastrophic-precision tail in volfi at the deep wings of the moneyness-vega plane (3-4% failure rate inside each deep-wing band; max σ error 3.3e-1).
 
 ### Accuracy per band (100,000 SplitMix64-seeded options, mpmath-200-bit oracle)
 
@@ -53,7 +53,7 @@ The volfi finding is reproduced via volfi's own `otm_context` API and volfi-self
 | py_lets_be_rational (LBR scalar) | Python+C++ scalar loop | 100,000 | 3,475.3 | 0.348 | 1.54e-11 | 0 |
 | py_vollib_vectorized | Python+C++ numpy-vectorized | 100,000 | 405.6 | 0.041 | 2.04e-11 | 0 |
 
-All rows on the same SplitMix64-seeded dataset (`bench/data.rs`, seed `0x5EEDBEEFCAFEF00D`). The voltic Rust rows are 1M options (median of 7 timed passes after warmup, `cargo run --release --bin bench`); the Python comparison rows are a 100k subsample (Python is per-option-slower so 1M wall time would be 3+ s for LBR scalar). Same dataset, same RNG draw, first 100k rows.
+All rows on the same SplitMix64-seeded dataset (`bench/data.rs`, seed `0x5EEDBEEFCAFEF00D`). The voltic Rust rows are 1M options (median of 7 timed passes after warmup, `cargo run --release --bin bench`); the Python comparison rows are a 100k subsample (Python is per-option-slower so 1M wall time would be 3+ s for LBR scalar). Same dataset, same RNG draw, first 100k rows.[^2]
 
 Voltic's one-shot `implied_vol_fast` is about 48 times faster than LBR scalar and about 5.5 times faster than py_vollib_vectorized, with zero catastrophic errors and zero NaN.
 
@@ -69,7 +69,7 @@ The CLY-3D grid (51,321 deep-OTM-weighted points; defined in Cui, Liu, Yao 2021 
 
 voltic, LBR, and py_vollib_vectorized all sit at 1.539e-9 max abs σ error (the f64 reverse-Black floor at the deep-OTM near-expiry corner). voltic is 36.7 times faster than LBR scalar and 4.2 times faster than py_vollib_vectorized.
 
-Voltic's 13 NaN are rows where `σ_true = VOL_MIN = 0.01` exactly, excluded by the open-interval domain. See [Accuracy: known gaps](#accuracy-known-gaps).[^1][^2]
+Voltic's 13 NaN are rows where `σ_true = VOL_MIN = 0.01` exactly, excluded by the open-interval domain. See [Accuracy: known gaps](#accuracy-known-gaps).
 
 ### Benchmarks: ATM-dense (near-at-the-money grid)
 
@@ -81,7 +81,7 @@ Real options markets are densest at the money. The SplitMix64 dataset (1M synthe
 | py_lets_be_rational (scalar) | 5,315 | 3.338e-03 | 0 |
 | py_vollib_vectorized | 498 | 3.338e-03 | 0 |
 
-voltic and LBR sit at the same max error (3.338e-3, governed by 2 deep-wing cases shared by all three solvers); voltic is 78 times faster than LBR scalar on the ATM regime. voltic's 288 NaN are rows where `σ_true = VOL_MIN = 0.01` exactly, excluded by voltic's open-interval domain.
+voltic and LBR sit at the same max error (3.338e-3, governed by 2 deep-wing cases shared by all three solvers); voltic is 78 times faster than LBR scalar on the ATM regime. voltic's 288 NaN are rows where `σ_true = VOL_MIN = 0.01` exactly, excluded by voltic's open-interval domain. See [Accuracy: known gaps](#accuracy-known-gaps).
 
 ---
 
@@ -136,7 +136,7 @@ let iv = implied_vol_fast(&spot, &strike, &tte, &rate, &price, &kind);
 
 ### `OtmContext::new` + `implied_vol_with_context_batch`: throughput-prioritized split API
 
-The `(k, T)`-only prelude is built once and reused across many price evaluations on the same `(strike, expiry)` node, e.g. vol-surface calibration, MC repricing on a fixed grid, scenario sweeps. About 34 to 40 ns/option per evaluation. This path skips the rational-fallback step `implied_vol_fast` uses, so it trades accuracy for speed: callers must already filter their input domain to the well-conditioned interior. Use `implied_vol_fast` for accuracy-critical paths.
+The `(k, T)`-only prelude is built once and reused across many price evaluations on the same `(strike, expiry)` node, e.g. vol-surface calibration, MC repricing on a fixed grid, scenario sweeps. About 34 to 40 ns/option per evaluation. This path skips the rational-fallback step `implied_vol_fast` uses, so on unfiltered grids it produces catastrophic errors (e.g. ~20% of rows on CLY-3D, max σ error 0.85); it is only correct on pre-filtered interior input. Use `implied_vol_fast` for accuracy-critical paths.
 
 ```rust
 use voltic::{OtmContext, implied_vol_with_context_batch};
