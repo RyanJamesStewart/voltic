@@ -37,7 +37,10 @@
 // simd_ffi is only used by the Sleef extern block, which is itself gated on
 // avx512f. Match the gate so non-AVX-512 builds (e.g. CI runners on
 // x86-64-v3) don't see the feature declared but unused.
-#![cfg_attr(all(target_arch = "x86_64", target_feature = "avx512f"), feature(simd_ffi))]
+#![cfg_attr(
+    all(target_arch = "x86_64", target_feature = "avx512f"),
+    feature(simd_ffi)
+)]
 #![allow(clippy::needless_range_loop)]
 
 pub mod black;
