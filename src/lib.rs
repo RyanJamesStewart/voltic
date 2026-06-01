@@ -43,6 +43,7 @@ pub mod norm;
 pub mod otm_context;
 pub mod schadner;
 pub mod schadner_fast;
+pub mod typed;
 
 pub use otm_context::{
     broadcast_context, canonical_c_from_price, implied_vol_vectorized_with_contexts,
@@ -51,6 +52,7 @@ pub use otm_context::{
 };
 pub use schadner::implied_vol_explicit;
 pub use schadner_fast::implied_vol_fast_kernel;
+pub use typed::{implied_vol_typed, implied_vol_typed_batch, ImpliedVolResult, ImpliedVolStatus};
 
 /// Public `implied_vol_fast` — the fast Cheb+Halley kernel with a NaN
 /// fallback to the rational kernel. The kernel runs on the full batch as
