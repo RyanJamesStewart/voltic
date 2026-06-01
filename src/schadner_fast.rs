@@ -409,10 +409,7 @@ pub fn cheb_seed_from_kside_basis_scalar(
 /// `cheb_tu[m]` carries lane `j`'s pre-evaluated k-side basis. Returns
 /// `v = exp(sum)`.
 #[inline]
-pub fn cheb_seed_from_basis_simd(
-    cheb_tu: &[V; SEED_DEG + 1],
-    cheb_tw: &[V; SEED_DEG + 1],
-) -> V {
+pub fn cheb_seed_from_basis_simd(cheb_tu: &[V; SEED_DEG + 1], cheb_tw: &[V; SEED_DEG + 1]) -> V {
     let mut sum = V::splat(0.0);
     let mut m = 0;
     while m <= SEED_DEG {
@@ -575,7 +572,6 @@ pub fn wing_seed_simd(k_abs: V, q: V) -> V {
     u
 }
 
-
 /// Solve one lane-packed batch by Schadner's formula + Chebyshev seed + one Halley step.
 #[inline]
 fn solve_chunk_fast(s: V, k: V, t: V, r: V, price: V, is_call: M, valid: M) -> V {
@@ -657,7 +653,9 @@ fn solve_chunk_fast(s: V, k: V, t: V, r: V, price: V, is_call: M, valid: M) -> V
     }
     let mut _j = 0;
     while _j < HOUSEHOLDER3_STEPS {
-        v_iter = householder3_step(v_iter, mu, q).simd_max(v_lo).simd_min(v_hi);
+        v_iter = householder3_step(v_iter, mu, q)
+            .simd_max(v_lo)
+            .simd_min(v_hi);
         _j += 1;
     }
     let sigma_ig = v_iter / sqrt_t;
@@ -790,9 +788,13 @@ mod avenue1_property_tests {
         // Deterministic LCG for reproducibility, 1024 samples.
         let mut state = 0xdeadbeef_u64;
         for _ in 0..2048 {
-            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             let r1 = ((state >> 11) as f64) / ((1u64 << 53) as f64);
-            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             let r2 = ((state >> 11) as f64) / ((1u64 << 53) as f64);
             // μ ∈ [1, 50] — old form is well-conditioned: e^(2/μ) ∈ [e^0.04, e^2].
             // We don't push into the ATM-cancellation regime (μ → ∞) here because
@@ -817,7 +819,11 @@ mod avenue1_property_tests {
             "avenue1_property: max_abs = {:.3e}, max_rel = {:.3e}, worst (x, μ, old, new) = ({:e}, {:e}, {:e}, {:e})",
             max_abs, max_rel, worst.0, worst.1, worst.2, worst.3
         );
-        assert!(max_abs < 1e-13, "new and old IG CDF disagree: max_abs = {:e}", max_abs);
+        assert!(
+            max_abs < 1e-13,
+            "new and old IG CDF disagree: max_abs = {:e}",
+            max_abs
+        );
     }
 
     #[test]
@@ -832,8 +838,14 @@ mod avenue1_property_tests {
                 let x = mu * (j as f64) / 50.0;
                 let new = ig_cdf_new(x, mu);
                 assert!(new.is_finite(), "CDF non-finite at x={x}, μ={mu}: {new}");
-                assert!(new >= 0.0 && new <= 1.0, "CDF out of [0,1] at x={x}, μ={mu}: {new}");
-                assert!(new >= prev - 1e-12, "CDF not monotone at x={x}, μ={mu}: prev={prev} new={new}");
+                assert!(
+                    new >= 0.0 && new <= 1.0,
+                    "CDF out of [0,1] at x={x}, μ={mu}: {new}"
+                );
+                assert!(
+                    new >= prev - 1e-12,
+                    "CDF not monotone at x={x}, μ={mu}: prev={prev} new={new}"
+                );
                 prev = new;
             }
         }

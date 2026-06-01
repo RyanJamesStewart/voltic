@@ -38,8 +38,8 @@
 
 use std::time::Instant;
 use voltic::{
-    bs_price, canonical_c_from_price, implied_vol_fast,
-    implied_vol_vectorized_with_contexts, OptionKind, OtmContext,
+    bs_price, canonical_c_from_price, implied_vol_fast, implied_vol_vectorized_with_contexts,
+    OptionKind, OtmContext,
 };
 
 const SPOT: f64 = 100.0;
@@ -274,9 +274,7 @@ fn main() {
     );
     println!("retained cases (price > 1e-20): {n}");
     if n != 51_321 {
-        println!(
-            "WARN: case count {n} != 51,321 — check filter threshold or grid construction"
-        );
+        println!("WARN: case count {n} != 51,321 — check filter threshold or grid construction");
     }
 
     // Dataset CSV (consumed by the Python comparison harness).
@@ -290,9 +288,7 @@ fn main() {
     let (ns_fast, solved_fast) = timed_solver_fast(n, &s, &k, &t, &r, &p, &kind);
     let (max_fast, nan_fast, cat_fast) =
         report_errors("voltic implied_vol_fast", &solved_fast, &sig);
-    println!(
-        "  voltic implied_vol_fast: {ns_fast:.1} ns/option (median of 7, {REPS} reps each)"
-    );
+    println!("  voltic implied_vol_fast: {ns_fast:.1} ns/option (median of 7, {REPS} reps each)");
 
     // ---- Solver 2: voltic implied_vol_vectorized_with_contexts (cold) ----
     let (ns_ctx, solved_ctx) = timed_solver_context(n, &s, &k, &t, &r, &p, &kind);

@@ -35,8 +35,8 @@
 
 use std::time::Instant;
 use voltic::{
-    bs_price, canonical_c_from_price, implied_vol_fast,
-    implied_vol_vectorized_with_contexts, OptionKind, OtmContext,
+    bs_price, canonical_c_from_price, implied_vol_fast, implied_vol_vectorized_with_contexts,
+    OptionKind, OtmContext,
 };
 
 const SPOT: f64 = 100.0;
@@ -279,9 +279,18 @@ fn main() {
         "spec: S=100, r=0.03, K=linspace(85,115,{}), T=linspace(0.01,2,{}), sigma=linspace(0.01,0.99,{})",
         N_K, N_T, N_SIG
     );
-    println!("raw: {} cases ({}×{}×{})", N_K * N_T * N_SIG, N_K, N_T, N_SIG);
+    println!(
+        "raw: {} cases ({}×{}×{})",
+        N_K * N_T * N_SIG,
+        N_K,
+        N_T,
+        N_SIG
+    );
     println!("retained cases (price > 1e-20): {n}");
-    let n_calls = kind.iter().filter(|k| matches!(k, OptionKind::Call)).count();
+    let n_calls = kind
+        .iter()
+        .filter(|k| matches!(k, OptionKind::Call))
+        .count();
     let n_puts = n - n_calls;
     println!("  calls (K >= S): {n_calls}    puts (K < S): {n_puts}");
 
@@ -295,9 +304,7 @@ fn main() {
     let (ns_fast, solved_fast) = timed_solver_fast(n, &s, &k, &t, &r, &p, &kind);
     let (max_fast, nan_fast, cat_fast) =
         report_errors("voltic implied_vol_fast", &solved_fast, &sig);
-    println!(
-        "  voltic implied_vol_fast: {ns_fast:.1} ns/option (median of 7, {REPS} reps each)"
-    );
+    println!("  voltic implied_vol_fast: {ns_fast:.1} ns/option (median of 7, {REPS} reps each)");
 
     // ---- Solver 2: voltic implied_vol_vectorized_with_contexts ----
     let (ns_ctx, solved_ctx) = timed_solver_context(n, &s, &k, &t, &r, &p, &kind);

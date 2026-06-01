@@ -207,7 +207,9 @@ pub fn broadcast_context(ctx: &OtmContext) -> OtmContextSimd {
 pub fn implied_vol_with_context(ctx: &OtmContext, c: f64) -> f64 {
     // Per-option: q-side Cheb basis, bilinear sum with cached k-side basis.
     let q = (1.0 - c) / ctx.m;
-    let q_for_seed = q.max(crate::schadner_fast::SEED_P_LO_PUB).min(crate::schadner_fast::SEED_P_HI_PUB);
+    let q_for_seed = q
+        .max(crate::schadner_fast::SEED_P_LO_PUB)
+        .min(crate::schadner_fast::SEED_P_HI_PUB);
 
     let cheb_tw = cheb_qside_basis(q_for_seed);
     let seed_v = cheb_seed_from_kside_basis_scalar(&ctx.cheb_tu, &cheb_tw);
@@ -222,7 +224,9 @@ pub fn implied_vol_with_context(ctx: &OtmContext, c: f64) -> f64 {
     let mut v_simd = V::splat(v_iter);
     let mut j = 0;
     while j < HOUSEHOLDER3_STEPS_CTX {
-        v_simd = householder3_step_simd(v_simd, mu_v, q_v).simd_max(v_lo_v).simd_min(v_hi_v);
+        v_simd = householder3_step_simd(v_simd, mu_v, q_v)
+            .simd_max(v_lo_v)
+            .simd_min(v_hi_v);
         j += 1;
     }
     v_iter = v_simd[0];
@@ -235,7 +239,11 @@ pub fn implied_vol_with_context(ctx: &OtmContext, c: f64) -> f64 {
 #[inline]
 pub fn canonical_c_from_price(ctx: &OtmContext, spot: f64, price: f64, is_call: bool) -> f64 {
     let xn = price / spot;
-    if is_call { xn } else { xn + 1.0 - ctx.ek }
+    if is_call {
+        xn
+    } else {
+        xn + 1.0 - ctx.ek
+    }
 }
 
 /// Many prices on one context. SIMD-batched per 8.
@@ -302,10 +310,7 @@ pub fn implied_vol_with_context_batch(ctx: &OtmContext, prices: &[f64]) -> Vec<f
 /// existing `implied_vol_fast_kernel` cost minus the (k,T) prelude work —
 /// because the caller already paid that off-line when building the
 /// `contexts` slice.
-pub fn implied_vol_vectorized_with_contexts(
-    contexts: &[OtmContext],
-    prices: &[f64],
-) -> Vec<f64> {
+pub fn implied_vol_vectorized_with_contexts(contexts: &[OtmContext], prices: &[f64]) -> Vec<f64> {
     let n = contexts.len();
     assert_eq!(
         n,
@@ -428,7 +433,9 @@ pub fn ig_kt_prelude_simd(k: V, t: V) -> OtmContextSimd {
     let mu = (V::splat(2.0) / ak_clamped).simd_min(V::splat(1e12));
     let v_lo = V::splat(VOL_MIN) * sqrt_t;
     let v_hi = V::splat(VOL_MAX) * sqrt_t;
-    let k_for_seed = ak.simd_max(V::splat(SEED_K_LO_A51)).simd_min(V::splat(SEED_K_HI_A51));
+    let k_for_seed = ak
+        .simd_max(V::splat(SEED_K_LO_A51))
+        .simd_min(V::splat(SEED_K_HI_A51));
 
     // Chebyshev k-side basis: T_m(u(k_for_seed)) for m = 0..=SEED_DEG_PUB.
     // u = (ln(k_for_seed) - u_centre) / u_half_width
@@ -569,8 +576,16 @@ pub fn pack_contexts_from_kt(k: &[f64], t: &[f64]) -> Vec<OtmContextSimd> {
 /// scalar context build is gone entirely. Beats vanilla voltic-fast on
 /// cold workloads because the IG prelude itself runs at SIMD throughput.
 pub fn implied_vol_fully_vectorized(k: &[f64], t: &[f64], c: &[f64]) -> Vec<f64> {
-    assert_eq!(k.len(), t.len(), "implied_vol_fully_vectorized: k.len() != t.len()");
-    assert_eq!(k.len(), c.len(), "implied_vol_fully_vectorized: k.len() != c.len()");
+    assert_eq!(
+        k.len(),
+        t.len(),
+        "implied_vol_fully_vectorized: k.len() != t.len()"
+    );
+    assert_eq!(
+        k.len(),
+        c.len(),
+        "implied_vol_fully_vectorized: k.len() != c.len()"
+    );
     let n = k.len();
     let mut out = vec![0.0_f64; n];
     let mut i = 0;

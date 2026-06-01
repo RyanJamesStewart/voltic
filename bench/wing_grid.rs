@@ -33,19 +33,48 @@ fn phi_inv(p: f64) -> f64 {
     if q.abs() <= 0.425 {
         let r = q * q;
         q * ((((-39.69683028665376 * r + 220.9460984245205) * r - 275.9285104469687) * r
-            + 138.357751867269) * r - 30.66479806614716) * r + 2.506628277459239 / (((((-54.47609879822406 * r + 161.5858368580409) * r - 155.6989798598866) * r + 66.80131188771972) * r - 13.28068155288572) * r + 1.0)
+            + 138.357751867269)
+            * r
+            - 30.66479806614716)
+            * r
+            + 2.506628277459239
+                / (((((-54.47609879822406 * r + 161.5858368580409) * r - 155.6989798598866) * r
+                    + 66.80131188771972)
+                    * r
+                    - 13.28068155288572)
+                    * r
+                    + 1.0)
     } else {
         // Tail. Use scipy-style approximation for ~6 digit accuracy; sufficient.
         let r = if q < 0.0 { p } else { 1.0 - p };
         let lr = (-r.ln()).sqrt();
         let z = (((((2.938163982698783 * lr + 4.374664141464968) * lr - 2.549732539343734) * lr
-            - 2.400758277161838) * lr - 0.3223964580411365) * lr - 0.007784894002430293)
-            / ((((3.754408661907416 * lr + 2.445134137142996) * lr + 0.3224671290700398) * lr + 0.007784695709041462) * lr + 1.0);
-        if q < 0.0 { -z } else { z }
+            - 2.400758277161838)
+            * lr
+            - 0.3223964580411365)
+            * lr
+            - 0.007784894002430293)
+            / ((((3.754408661907416 * lr + 2.445134137142996) * lr + 0.3224671290700398) * lr
+                + 0.007784695709041462)
+                * lr
+                + 1.0);
+        if q < 0.0 {
+            -z
+        } else {
+            z
+        }
     }
 }
 
-fn build_grid() -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<OptionKind>, Vec<f64>) {
+fn build_grid() -> (
+    Vec<f64>,
+    Vec<f64>,
+    Vec<f64>,
+    Vec<f64>,
+    Vec<f64>,
+    Vec<OptionKind>,
+    Vec<f64>,
+) {
     let mut s = Vec::new();
     let mut k = Vec::new();
     let mut t = Vec::new();
@@ -75,7 +104,11 @@ fn build_grid() -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<Option
             let sigma = v / sqrt_t;
             // Use OTM-leg pricing: if k_log > 0, call; else put.
             let is_call = k_log >= 0.0;
-            let opt_kind = if is_call { OptionKind::Call } else { OptionKind::Put };
+            let opt_kind = if is_call {
+                OptionKind::Call
+            } else {
+                OptionKind::Put
+            };
             // Price via voltic's bs_price so the round-trip is internally consistent.
             let p = voltic::bs_price(&[spot], &[strike], &[tte], &[rate], &[sigma], &[opt_kind])[0];
             // Filter: price must be above f64 noise so the inverse is meaningful.
@@ -138,7 +171,10 @@ fn main() {
     }
     samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let median = samples[samples.len() / 2];
-    println!("median ns/option (median of 7, {} reps each): {median:.1}", REPS);
+    println!(
+        "median ns/option (median of 7, {} reps each): {median:.1}",
+        REPS
+    );
     println!("options/sec: {:.3e}", 1e9 / median);
 
     // Stratified report by whether the lane goes through the wing predicate.
@@ -154,7 +190,11 @@ fn main() {
             let ek = k_log.exp();
             let m = if k_log > 0.0 { 1.0 } else { ek };
             let xn = price[i] / s[i];
-            let c = if matches!(kind[i], OptionKind::Call) { xn } else { xn + 1.0 - ek };
+            let c = if matches!(kind[i], OptionKind::Call) {
+                xn
+            } else {
+                xn + 1.0 - ek
+            };
             (1.0 - c) / m
         };
         let q_surv = 1.0 - q_cdf;
@@ -163,10 +203,14 @@ fn main() {
             let e = (solved[i] - sigma_true[i]).abs();
             if in_wing {
                 wing_lanes += 1;
-                if e > wing_max_err { wing_max_err = e; }
+                if e > wing_max_err {
+                    wing_max_err = e;
+                }
             } else {
                 cheb_lanes += 1;
-                if e > cheb_max_err { cheb_max_err = e; }
+                if e > cheb_max_err {
+                    cheb_max_err = e;
+                }
             }
         }
     }

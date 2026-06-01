@@ -82,15 +82,13 @@ pub fn vlog_f64x8(x: Simd<f64, 8>) -> Simd<f64, 8> {
     x.ln()
 }
 
-
 /// Generic SIMD exp: routes f64x8 on AVX-512 to SLEEF, otherwise falls back
 /// to `.exp()` (std::simd per-lane libc dispatch). The N==8 branch is a
 /// compile-time const fold, so non-8 monomorphizations have zero runtime
 /// dispatch cost.
 #[inline(always)]
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-pub fn vexp<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N>
-{
+pub fn vexp<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N> {
     if N == 8 {
         unsafe {
             let v: __m512d = core::mem::transmute_copy(&x);
@@ -105,8 +103,7 @@ pub fn vexp<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N>
 
 #[inline(always)]
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512f"))]
-pub fn vlog<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N>
-{
+pub fn vlog<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N> {
     if N == 8 {
         unsafe {
             let v: __m512d = core::mem::transmute_copy(&x);
@@ -121,18 +118,15 @@ pub fn vlog<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N>
 
 #[inline(always)]
 #[cfg(not(all(target_arch = "x86_64", target_feature = "avx512f")))]
-pub fn vexp<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N>
-{
+pub fn vexp<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N> {
     x.exp()
 }
 
 #[inline(always)]
 #[cfg(not(all(target_arch = "x86_64", target_feature = "avx512f")))]
-pub fn vlog<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N>
-{
+pub fn vlog<const N: usize>(x: Simd<f64, N>) -> Simd<f64, N> {
     x.ln()
 }
-
 
 /// 1/√(2π).
 const INV_SQRT_2PI: f64 = 0.398_942_280_401_432_68; // 1/√(2π)
@@ -516,10 +510,7 @@ pub fn erfcx<const N: usize>(y_in: Simd<f64, N>) -> Simd<f64, N> {
 ///
 /// Caller guarantees `v ≥ 0`. `u` may be signed.
 #[inline]
-pub fn ig_surv_from_uv<const N: usize>(
-    u: Simd<f64, N>,
-    v: Simd<f64, N>,
-) -> Simd<f64, N> {
+pub fn ig_surv_from_uv<const N: usize>(u: Simd<f64, N>, v: Simd<f64, N>) -> Simd<f64, N> {
     let abs_u = u.abs();
     let u2 = u * u;
 

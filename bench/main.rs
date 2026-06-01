@@ -393,9 +393,7 @@ fn main() {
     );
     println!(
         "{:<46} {:>14.1} {:>12}",
-        "REPEAT: implied_vol_with_context_batch (SIMD)",
-        repeat_batch_ns,
-        repeat_batch_nan
+        "REPEAT: implied_vol_with_context_batch (SIMD)", repeat_batch_ns, repeat_batch_nan
     );
     println!(
         "{:<46} {:>14.1} {:>12}",
@@ -403,15 +401,11 @@ fn main() {
     );
     println!(
         "{:<46} {:>14.1} {:>12}",
-        "REFERENCE: voltic (vectorized) full kernel",
-        voltic_vec_ns,
-        overall_j.n_nan
+        "REFERENCE: voltic (vectorized) full kernel", voltic_vec_ns, overall_j.n_nan
     );
     println!(
         "{:<46} {:>14.1} {:>12}",
-        "REFERENCE: voltic fast (Cheb+Halley) full",
-        fast_vec_ns,
-        overall_f.n_nan
+        "REFERENCE: voltic fast (Cheb+Halley) full", fast_vec_ns, overall_f.n_nan
     );
 
     // Spot-check the repeat-batch output accuracy: compare to scalar on first
@@ -472,11 +466,7 @@ fn main() {
     let fully_vec_out =
         voltic::otm_context::implied_vol_fully_vectorized(&k_log_vec, &t_vec, &canonical_c);
     let fully_vec_ns = time_ns_per_option(n, || {
-        let r = voltic::otm_context::implied_vol_fully_vectorized(
-            &k_log_vec,
-            &t_vec,
-            &canonical_c,
-        );
+        let r = voltic::otm_context::implied_vol_fully_vectorized(&k_log_vec, &t_vec, &canonical_c);
         r.len()
     });
     let fully_vec_nan = fully_vec_out.iter().filter(|v| v.is_nan()).count();
@@ -534,9 +524,7 @@ fn main() {
         let mut dtu = 0.0_f64;
         let deg = scalar_ctx.cheb_tu.len();
         for r in 0..deg {
-            dtu = dtu.max(
-                (scalar_ctx.cheb_tu[r] - simd_ctx.cheb_tu[r].as_array()[lane]).abs(),
-            );
+            dtu = dtu.max((scalar_ctx.cheb_tu[r] - simd_ctx.cheb_tu[r].as_array()[lane]).abs());
         }
         let d = dsqrt.max(dmu).max(dm).max(dtu);
         build_agree_max = build_agree_max.max(d);
@@ -563,15 +551,11 @@ fn main() {
     );
     println!(
         "{:<46} {:>14.1} {:>12}",
-        "A5.1 cold END-TO-END (fully_vectorized fused)",
-        cold_end_to_end_a51,
-        fully_vec_nan
+        "A5.1 cold END-TO-END (fully_vectorized fused)", cold_end_to_end_a51, fully_vec_nan
     );
     println!(
         "{:<46} {:>14.1} {:>12}",
-        "A5.1 cold END-TO-END (pack_contexts_from_kt + solve)",
-        packed_solve_ns,
-        "-"
+        "A5.1 cold END-TO-END (pack_contexts_from_kt + solve)", packed_solve_ns, "-"
     );
     println!(
         "{:<46} {:>14.1} {:>12}",

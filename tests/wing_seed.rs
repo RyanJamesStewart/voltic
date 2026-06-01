@@ -132,10 +132,7 @@ fn wing_seed_grid_within_5pct_relative() {
     let mut worst = (0.0, 0.0, 0.0, 0.0);
     for &(h, q, v_true) in WING_REF {
         let v_seed = seed_scalar(h, q);
-        assert!(
-            v_seed.is_finite(),
-            "wing seed non-finite at h={h} q={q}"
-        );
+        assert!(v_seed.is_finite(), "wing seed non-finite at h={h} q={q}");
         let rel = (v_seed - v_true).abs() / v_true;
         if rel > max_rel {
             max_rel = rel;
@@ -296,14 +293,8 @@ fn wing_kernel_recovers_sigma_at_wing_corners() {
             &[sigma_target],
             &[OptionKind::Put],
         )[0];
-        let recovered = implied_vol_fast(
-            &[spot],
-            &[strike],
-            &[t],
-            &[r],
-            &[price],
-            &[OptionKind::Put],
-        )[0];
+        let recovered =
+            implied_vol_fast(&[spot], &[strike], &[t], &[r], &[price], &[OptionKind::Put])[0];
         let err = (recovered - sigma_target).abs();
         eprintln!(
             "wing_kernel: h={h} q={q} σ_target={sigma_target} σ_recovered={recovered} |err|={err:.3e}"
@@ -336,9 +327,9 @@ fn cheb_regime_unchanged_by_wing_addition() {
     // Several non-wing cases. We check that voltic-fast still recovers σ
     // to under 1e-7 on these (it was already at that bar in v1.0.0).
     let cases = &[
-        (1.0, 1.0, 1.0, 0.0, 0.20, OptionKind::Call),    // ATM, σ=20%
-        (1.0, 0.9, 1.0, 0.0, 0.20, OptionKind::Put),     // slight OTM put
-        (1.0, 1.2, 1.0, 0.0, 0.35, OptionKind::Call),    // moderately OTM call
+        (1.0, 1.0, 1.0, 0.0, 0.20, OptionKind::Call), // ATM, σ=20%
+        (1.0, 0.9, 1.0, 0.0, 0.20, OptionKind::Put),  // slight OTM put
+        (1.0, 1.2, 1.0, 0.0, 0.35, OptionKind::Call), // moderately OTM call
         (100.0, 105.0, 0.5, 0.02, 0.25, OptionKind::Call),
         (100.0, 90.0, 1.0, 0.01, 0.30, OptionKind::Put),
     ];
@@ -429,14 +420,37 @@ fn volfi_wing_grid_nan_set_bounded_to_two() {
         if q.abs() <= 0.425 {
             let r = q * q;
             q * ((((-39.69683028665376 * r + 220.9460984245205) * r - 275.9285104469687) * r
-                + 138.357751867269) * r - 30.66479806614716) * r + 2.506628277459239 / (((((-54.47609879822406 * r + 161.5858368580409) * r - 155.6989798598866) * r + 66.80131188771972) * r - 13.28068155288572) * r + 1.0)
+                + 138.357751867269)
+                * r
+                - 30.66479806614716)
+                * r
+                + 2.506628277459239
+                    / (((((-54.47609879822406 * r + 161.5858368580409) * r - 155.6989798598866)
+                        * r
+                        + 66.80131188771972)
+                        * r
+                        - 13.28068155288572)
+                        * r
+                        + 1.0)
         } else {
             let r = if q < 0.0 { p } else { 1.0 - p };
             let lr = (-r.ln()).sqrt();
-            let z = (((((2.938163982698783 * lr + 4.374664141464968) * lr - 2.549732539343734) * lr
-                - 2.400758277161838) * lr - 0.3223964580411365) * lr - 0.007784894002430293)
-                / ((((3.754408661907416 * lr + 2.445134137142996) * lr + 0.3224671290700398) * lr + 0.007784695709041462) * lr + 1.0);
-            if q < 0.0 { -z } else { z }
+            let z = (((((2.938163982698783 * lr + 4.374664141464968) * lr - 2.549732539343734)
+                * lr
+                - 2.400758277161838)
+                * lr
+                - 0.3223964580411365)
+                * lr
+                - 0.007784894002430293)
+                / ((((3.754408661907416 * lr + 2.445134137142996) * lr + 0.3224671290700398) * lr
+                    + 0.007784695709041462)
+                    * lr
+                    + 1.0);
+            if q < 0.0 {
+                -z
+            } else {
+                z
+            }
         }
     }
     let _ = FRAC_1_SQRT_2; // suppress unused if any future cleanup nukes the use above
@@ -473,7 +487,11 @@ fn volfi_wing_grid_nan_set_bounded_to_two() {
             let strike = k_log.exp();
             let sigma = v / sqrt_t;
             let is_call = k_log >= 0.0;
-            let opt_kind = if is_call { OptionKind::Call } else { OptionKind::Put };
+            let opt_kind = if is_call {
+                OptionKind::Call
+            } else {
+                OptionKind::Put
+            };
             let p = voltic::bs_price(&[spot], &[strike], &[tte], &[rate], &[sigma], &[opt_kind])[0];
             if !(p.is_finite() && p > 1e-15) {
                 continue;
@@ -513,8 +531,8 @@ fn volfi_wing_grid_nan_set_bounded_to_two() {
 
     // Verify each NaN is among the pinned set.
     for (v, dlt, _) in &nan_cases {
-        let pinned = (*v - 0.01).abs() < 1e-9
-            && ((*dlt - 0.30).abs() < 1e-9 || (*dlt - 0.70).abs() < 1e-9);
+        let pinned =
+            (*v - 0.01).abs() < 1e-9 && ((*dlt - 0.30).abs() < 1e-9 || (*dlt - 0.70).abs() < 1e-9);
         assert!(
             pinned,
             "NaN at (v={v}, Δ={dlt}) is NOT one of the pinned cases \
