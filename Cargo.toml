@@ -67,3 +67,11 @@ path = "bench/cly_3d.rs"
 [[bin]]
 name = "atm_dense"
 path = "bench/atm_dense.rs"
+
+[[bin]]
+name = "adversarial"
+path = "bench/adversarial.rs"
+
+[[bin]]
+name = "adversarial_dump"
+path = "bench/adversarial_dump.rs"
