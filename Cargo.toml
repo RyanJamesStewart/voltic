@@ -75,3 +75,15 @@ path = "bench/adversarial.rs"
 [[bin]]
 name = "adversarial_dump"
 path = "bench/adversarial_dump.rs"
+
+[[bin]]
+name = "verify_301"
+path = "bench/verify_301.rs"
+
+[[bin]]
+name = "spot_check"
+path = "bench/spot_check.rs"
+
+[[bin]]
+name = "full_cly3d_scan"
+path = "bench/full_cly3d_scan.rs"
