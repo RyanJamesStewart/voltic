@@ -215,11 +215,37 @@ let ivs = implied_vol_fully_vectorized(&k, &t, &c);   // canonical OTM premium r
 
 The vector-of-contexts shape (`implied_vol_vectorized_with_contexts`) is also exposed for callers that have already materialized an `&[OtmContext]`.
 
+### `implied_vol_typed` (v1.2): boundary-status API
+
+Returns an `ImpliedVolResult { value, status }` per option. The status arm distinguishes seven outcomes the bare-NaN API conflates: `Computed`, `BelowVolMin { computed }`, `AboveVolMax { computed }`, `BelowIntrinsic`, `AboveMaximum`, `NonFinite`, `FailedToConverge`. The legacy `implied_vol_fast` / `implied_vol` map all non-`Computed` to a single NaN; the typed surface keeps the regime and (for `BelowVolMin` / `AboveVolMax`) the sigma the iteration actually found.
+
+```rust
+use voltic::{implied_vol_typed_batch, ImpliedVolStatus, OptionKind};
+
+let results = implied_vol_typed_batch(&spot, &strike, &tte, &rate, &price, &kind);
+for r in &results {
+    match r.status {
+        ImpliedVolStatus::Computed => { /* r.value is the IV */ }
+        ImpliedVolStatus::BelowVolMin { computed } => { /* sub-VOL_MIN root */ }
+        ImpliedVolStatus::AboveVolMax { computed } => { /* super-VOL_MAX root */ }
+        ImpliedVolStatus::BelowIntrinsic
+        | ImpliedVolStatus::AboveMaximum
+        | ImpliedVolStatus::NonFinite
+        | ImpliedVolStatus::FailedToConverge => { /* domain-rejection */ }
+    }
+}
+```
+
+The typed path runs a Householder-3 update (FlashIV eq. 6, AQFED.jl parity) on a wide internal bracket `[1e-8, 50.0]`, with a three-term price-residual floor and a sigma-resolution-aware classification gate. Computed sigma is guaranteed within a 1e-6 absolute sigma-resolution budget of the f64-stored price's true sigma; 200-bit mpmath verification on stratified CLY-3D and ATM-dense samples confirms worst deviation 3.41e-14 and 5.57e-8 respectively.
+
+The legacy f64-returning entry points (`implied_vol_fast`, `OtmContext::*`, `implied_vol_fully_vectorized`) are byte-identical with v1.1.0; use the typed API only when you need the regime structure.
+
+
 ---
 
 ## Test coverage
 
-`cargo +nightly test --release` runs **74 tests, all passing**:
+`cargo +nightly test --release` runs **97 tests, all passing**:
 
 - **52 lib unit tests** (`src/lib.rs`):
   - `black::tests` (12): cancellation-free Black price, three derivatives (FD-cross-checked), inflection-point invariant, small-σ / large-σ asymptotics, `erfcx` reformulation, SIMD-vs-scalar bitwise consistency.
@@ -230,6 +256,8 @@ The vector-of-contexts shape (`implied_vol_vectorized_with_contexts`) is also ex
   - `tests` (10): top-level integration: SIMD tail padding, deep-OTM short-expiry, edge-case NaN policy, rational kernel grid, put-call parity, named extreme regimes.
 - **11 proptest property tests** (`tests/properties.rs`): randomized round-trip σ recovery on each kernel, put-call parity, batch-vs-singleton SIMD agreement, `reference_table` against a py_lets_be_rational-generated reference.
 - **9 wing-seed tests** (`tests/wing_seed.rs`): Wren G corner, mpmath-200-bit reference table across `h ∈ {3..8} × q ∈ {0.01, 0.05, 0.1, 0.2, 0.3}`, boundary finiteness at the gate edges, SIMD lane independence, end-to-end kernel σ recovery at wing corners, Chebyshev-regime non-regression, context-API routing through the wing seed, and the volfi v×Δ NaN-set regression pin.
+- **18 typed-result tests** (`tests/typed_result.rs`): typed-API status discrimination across the seven `ImpliedVolStatus` arms, sigma-resolution-aware classification, internal-bracket reachability for sub-VOL_MIN and super-VOL_MAX roots, accept-floor gate, vega-conditioning gate, and adversarial-grid expected-status agreement.
+- **5 backward-compat tests** (`tests/backward_compat.rs`): every `implied_vol` / `implied_vol_fast` NaN row maps to a non-Computed typed status, every Computed typed status round-trips through the legacy f64 API as a finite value, and the v1.1.0 NaN counts (CLY-3D 13, ATM-dense 288, wing v x Delta 2, Schadner cold 0) reproduce bitwise.
 - **2 doc tests**: `implied_vol_fast` usage in `src/lib.rs` and the Schadner usage example in `src/schadner.rs`.
 
 The cross-validation against py_lets_be_rational on the full 1M dataset is the standalone harness `bench/python/cross_validate.py`. The 200-bit mpmath oracle is `bench/python/oracle_mpmath.py`. Neither is part of `cargo test`.

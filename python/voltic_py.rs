@@ -118,11 +118,60 @@ fn implied_vol_explicit_py(
     ))
 }
 
+/// `implied_vol_typed(spot, strike, tte, rate, price, kinds) -> list[tuple[float, str]]`
+///
+/// The v1.2 typed boundary-status API. Returns one `(value, status_str)`
+/// tuple per option. `status_str` is one of:
+///   - "Computed"          — iteration converged inside [VOL_MIN, VOL_MAX]
+///   - "BelowVolMin"       — converged to a finite root strictly below VOL_MIN;
+///                            `value` is the computed σ (NOT NaN, unlike legacy)
+///   - "AboveVolMax"       — converged to a finite root strictly above VOL_MAX;
+///                            `value` is the computed σ
+///   - "BelowIntrinsic"    — input price ≤ intrinsic; `value` is NaN
+///   - "AboveMaximum"      — input price ≥ trivial upper; `value` is NaN
+///   - "NonFinite"         — non-finite or non-positive input; `value` is NaN
+///   - "FailedToConverge"  — iteration did not converge or did not re-price;
+///                            `value` is NaN
+///
+/// The companion `implied_vol` (legacy f64) returns NaN for everything other
+/// than `"Computed"`; the typed API surfaces the boundary status and the
+/// computed σ where the iteration found one.
+#[pyfunction]
+#[pyo3(name = "implied_vol_typed")]
+fn implied_vol_typed_py(
+    spot: Vec<f64>,
+    strike: Vec<f64>,
+    tte: Vec<f64>,
+    rate: Vec<f64>,
+    price: Vec<f64>,
+    kinds: Vec<String>,
+) -> PyResult<Vec<(f64, String)>> {
+    check_lengths(&spot, &strike, &tte, &rate, &price, &kinds)?;
+    let kind = parse_kinds(&kinds);
+    let typed = crate::implied_vol_typed_batch(&spot, &strike, &tte, &rate, &price, &kind);
+    Ok(typed
+        .into_iter()
+        .map(|r| {
+            let s = match r.status {
+                crate::ImpliedVolStatus::Computed => "Computed",
+                crate::ImpliedVolStatus::BelowVolMin { .. } => "BelowVolMin",
+                crate::ImpliedVolStatus::AboveVolMax { .. } => "AboveVolMax",
+                crate::ImpliedVolStatus::BelowIntrinsic => "BelowIntrinsic",
+                crate::ImpliedVolStatus::AboveMaximum => "AboveMaximum",
+                crate::ImpliedVolStatus::NonFinite => "NonFinite",
+                crate::ImpliedVolStatus::FailedToConverge => "FailedToConverge",
+            };
+            (r.value, s.to_string())
+        })
+        .collect())
+}
+
 #[pymodule]
 fn voltic(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(implied_vol_py, m)?)?;
     m.add_function(wrap_pyfunction!(implied_vol_rational_py, m)?)?;
     m.add_function(wrap_pyfunction!(implied_vol_explicit_py, m)?)?;
+    m.add_function(wrap_pyfunction!(implied_vol_typed_py, m)?)?;
     // touch PyList so the import is not flagged unused on older pyo3
     let _ = std::any::type_name::<PyList>();
     Ok(())
