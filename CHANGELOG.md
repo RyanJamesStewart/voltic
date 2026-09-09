@@ -66,7 +66,7 @@ Fixed
 
 Performance
 
-- voltic implied_vol_fast: 73 ns Schadner cold, 89 ns CLY-3D, 68 ns ATM-dense; at-LBR-parity on max abs err across all grids; 36-78× faster than LBR scalar.
+- voltic implied_vol_fast: 73 ns Schadner cold, 89 ns CLY-3D, 68 ns ATM-dense; at-LBR-parity on max abs err across all grids; 36-78× faster than LBR scalar. [Correction, 2026-09-09: the "LBR scalar" baseline is py_lets_be_rational, a pure-Python port with an optional numba JIT timed in a Python loop, so this is not a like-for-like speed ratio against a compiled implementation; the parity statement holds on the SplitMix64 oracle metric only. See the README.]
 
 Release management
 

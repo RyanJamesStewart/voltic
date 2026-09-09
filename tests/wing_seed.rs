@@ -1,5 +1,5 @@
-//! `tests/wing_seed.rs` — Alfred Jr.'s black-box test suite for
-//! `wing_seed_simd(k_abs, q) -> v` per Wren G's analytic wing-seed spec.
+//! `tests/wing_seed.rs` — black-box test suite for
+//! `wing_seed_simd(k_abs, q) -> v` per the analytic wing-seed spec.
 //!
 //! ## Design discipline
 //!
@@ -10,7 +10,7 @@
 //!   `u = v = σ√T` such that, after 2 HH3 polish steps, the IG residual
 //!   `F_IG(4/v²; 2/h, 1) − q` is below the f64 conditioning floor.
 //!
-//! The seed itself does NOT have to be at f64 floor — Wren G's prediction
+//! The seed itself does NOT have to be at f64 floor — the design prediction
 //! is ≤ 1e-2 relative error in 1 Picard, then HH3-cubic to floor. So the
 //! tests check (a) the seed's standalone error vs an mpmath-200-bit reference,
 //! and (b) the seed + 2 HH3 step composition (the wired path).
@@ -19,7 +19,7 @@
 //!
 //! Per Ryan's standing rule, NO test is finalised without a demonstrated
 //! falsifying instance found before lockdown. Each test below records the
-//! probe Alfred Jr. used to discover the right bound. (Look for
+//! probe used to discover the right bound. (Look for
 //! `// FALSIFY:` comments — those name the input that broke an earlier
 //! draft of the test.)
 #![feature(portable_simd)]
@@ -70,23 +70,23 @@ const WING_REF: &[(f64, f64, f64)] = &[
     (8.0, 0.3000, 3.73198368391357826e+00),
 ];
 
-// Wren G's pinned corner example:  h = 5.29, c_* = 0.0234 -> v ≈ 1.99935.
-const WREN_G_H: f64 = 5.29;
-const WREN_G_Q: f64 = 0.0234;
-const WREN_G_V_TRUE: f64 = 1.99934761081733714e+00;
+// Pinned deep-wing corner example:  h = 5.29, c_* = 0.0234 -> v ≈ 1.99935.
+const CORNER_H: f64 = 5.29;
+const CORNER_Q: f64 = 0.0234;
+const CORNER_V_TRUE: f64 = 1.99934761081733714e+00;
 
 fn seed_scalar(h: f64, q: f64) -> f64 {
     wing_seed_simd(V::splat(h), V::splat(q))[0]
 }
 
 // ----------------------------------------------------------------------------
-// TEST 1 — Wren G corner. The reference example from Wren G's spec.
+// TEST 1 — deep-wing corner. The reference example from the wing-seed spec.
 //
 // The brief: "v ≈ 2.0 within 5e-3". This is the TRUE-value pin: v_true =
 // 1.99935 satisfies |v_true - 2| < 7e-4.
 //
 // The seed itself with N_PICARD=1 lands within ~5% (W0 leading-order is
-// ~9% off, one Picard halves that — predicted ≤ 1-4% by Wren G is matched).
+// ~9% off, one Picard halves that — the predicted ≤ 1-4% is matched).
 // We assert the seed is finite and within 10% relative — the f64-floor
 // landing is checked by Test 5's composed `implied_vol_fast` round-trip.
 //
@@ -97,20 +97,20 @@ fn seed_scalar(h: f64, q: f64) -> f64 {
 // guess (within 15% — W0 leading order's expected magnitude at this corner).
 // ----------------------------------------------------------------------------
 #[test]
-fn wing_seed_wren_g_corner_finite_and_within_15pct() {
-    let v_seed = seed_scalar(WREN_G_H, WREN_G_Q);
-    let rel = (v_seed - WREN_G_V_TRUE).abs() / WREN_G_V_TRUE;
+fn wing_seed_deep_corner_finite_and_within_15pct() {
+    let v_seed = seed_scalar(CORNER_H, CORNER_Q);
+    let rel = (v_seed - CORNER_V_TRUE).abs() / CORNER_V_TRUE;
     eprintln!(
-        "wren_g_corner: h={} q_surv={} v_seed={} v_true={} rel={:.3e}",
-        WREN_G_H, WREN_G_Q, v_seed, WREN_G_V_TRUE, rel
+        "deep_corner: h={} q_surv={} v_seed={} v_true={} rel={:.3e}",
+        CORNER_H, CORNER_Q, v_seed, CORNER_V_TRUE, rel
     );
     assert!(
         v_seed.is_finite(),
-        "wing seed produced non-finite at Wren G corner"
+        "wing seed produced non-finite at deep-wing corner"
     );
     assert!(
         rel < 1.5e-1,
-        "Wren G corner: seed off by rel {:.3e} (> 15%) — algorithm regression",
+        "deep-wing corner: seed off by rel {:.3e} (> 15%) — algorithm regression",
         rel
     );
 }
@@ -119,7 +119,7 @@ fn wing_seed_wren_g_corner_finite_and_within_15pct() {
 // TEST 2 — mpmath reference sweep. Seed error <= 5% relative across the
 // nominal wing grid h ∈ {3..8} × q ∈ {0.01, 0.05, 0.1, 0.2, 0.3}.
 //
-// 5% is the seed-quality bar Wren G derived: 1 Picard → ≤ 1%-ish, but we
+// 5% is the derived seed-quality bar: 1 Picard → ≤ 1%-ish, but we
 // allow 5% so the test passes even on degraded corners (h=3 boundary, q=0.3
 // boundary). The HH3-polish test below tightens to the f64 floor.
 //
@@ -224,11 +224,11 @@ fn wing_seed_simd_lanes_independent() {
 // wired pipeline), the recovered σ must hit machine precision against
 // reference inputs.
 //
-// We construct synthetic options at WREN G's corner and a few sweep points,
+// We construct synthetic options at the pinned deep-wing corner and a few sweep points,
 // pricing them with the known σ, then asking `implied_vol_fast` to recover
 // σ from price. The wing dispatch should fire (h >= WING_K_LO, q < WING_Q_MAX),
 // and the recovered σ should match to within 5e-10 (10× the f64 floor on a
-// round-trip — Wren G's prediction is ~1e-14 but we allow margin).
+// round-trip — the design prediction is ~1e-14 but we allow margin).
 //
 // FALSIFY: with HOUSEHOLDER3_STEPS = 1 in the kernel and a wing seed at 1%
 // accuracy, residual after 1 HH3 step is ~(1e-2)^4 = 1e-8 — below the 5e-10
@@ -276,7 +276,7 @@ fn wing_kernel_recovers_sigma_at_wing_corners() {
         (3.0, 0.10, 1.73536444010617918e+00),
         (4.0, 0.10, 2.05956112745943365e+00),
         (5.0, 0.10, 2.35271101572490515e+00),
-        (WREN_G_H, WREN_G_Q, WREN_G_V_TRUE),
+        (CORNER_H, CORNER_Q, CORNER_V_TRUE),
     ];
     let mut max_err = 0.0_f64;
     for &(h, q, sigma_target) in cases {
@@ -363,7 +363,7 @@ fn cheb_regime_unchanged_by_wing_addition() {
 fn context_api_routes_wing_seed() {
     let h: f64 = 5.29;
     let q_surv_target: f64 = 0.0234; // IG survival = c_*
-    let v_target = WREN_G_V_TRUE;
+    let v_target = CORNER_V_TRUE;
 
     // Build option: OTM put, k_log = -h, m = e^{-h}, σ = v_target.
     //
@@ -406,7 +406,7 @@ fn context_api_routes_wing_seed() {
 //
 // Two pre-existing f64-conditioning failures on the volfi v×Δ wing-saturated
 // grid at (v=0.01, Δ∈{0.30, 0.70}) — tiny-σ puts at the BS price floor
-// (< 1e-7), where the f64 inverse is not meaningful. Verified by Verifier A
+// (< 1e-7), where the f64 inverse is not meaningful. Verified
 // at v1.0.1 lock-in.
 //
 // This test pins the NaN set: any future Halley/HH3 edit must keep total
