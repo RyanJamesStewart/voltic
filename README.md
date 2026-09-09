@@ -1,6 +1,6 @@
 # voltic
 
-Vectorized Black-Scholes implied-volatility solver: `f64x8` SIMD, Schadner inverse-Gaussian seed with Householder-3 polish, with a Jäckel rational kernel as the deep-corner fallback. Independently verified against a 200-bit mpmath oracle.
+Vectorized Black-Scholes implied-volatility solver: `f64x8` SIMD, Schadner inverse-Gaussian seed with Householder-3 polish, with a Jäckel rational kernel as the deep-corner fallback. Checked against a 200-bit mpmath inversion of each f64-rounded price through a structurally independent code path (`mp.erfc` arithmetic, not the solver's `erfcx` kernel).[^1]
 
 ```rust
 use voltic::{implied_vol_fast, OptionKind};
@@ -23,7 +23,7 @@ Requires a **nightly Rust toolchain** (`std::simd`, `#![feature(portable_simd)]`
 
 ## Headline
 
-voltic sits at the f64 inversion floor across 100,000 SplitMix64-seeded options, tied with py_lets_be_rational on accuracy and 48 times faster at f64x8 SIMD throughput. Verification is an independent 200-bit mpmath oracle (`bench/python/oracle_mpmath.py`) that inverts each option's f64-rounded BS price to the floor it can be inverted to; the f64 solvers' errors are reported relative to that floor. Oracle self-consistency at 7.5e-56 passes the 1e-40 acceptance threshold by 16 orders of magnitude.[^1]
+On the 100,000-option SplitMix64 set, measured against a 200-bit mpmath inversion of each f64-rounded price, voltic's worst σ error is 2.2e-11 and py_lets_be_rational's is 2.0e-11, both within about 2x of the 1.1e-11 f64 inversion floor. That parity statement is scoped to this set and this metric. The CLY-3D and ATM-dense tables below measure error against the generating σ instead, a metric that saturates at the price-rounding floor and does not discriminate between solvers, so no parity claim is made there. `implied_vol_fast` runs at 73.6 ns/option on one core of an AMD Ryzen 9 9950X (`taskset -c 0`, 1,000,000 options, median of 7 timed passes after warmup). The oracle (`bench/python/oracle_mpmath.py`) inverts each option's f64-rounded BS price to the floor it can be inverted to; the f64 solvers' errors are reported relative to that floor. Oracle self-consistency at 7.5e-56 passes the 1e-40 acceptance threshold by 16 orders of magnitude.[^1]
 
 The accuracy table below also surfaces a ~0.91% catastrophic-precision tail in volfi at the deep wings of the moneyness-vega plane (3-4% failure rate inside each deep-wing band; max σ error 3.3e-1).
 
@@ -31,9 +31,9 @@ The accuracy table below also surfaces a ~0.91% catastrophic-precision tail in v
 
 | band | f64_floor max | voltic max | LBR max | volfi max | volfi NaN | volfi catastrophic (≥ 1e-3) |
 |---|---:|---:|---:|---:|---:|---:|
-| deep_otm (n=12,730) | 1.1e-11 | **2.2e-11** | 2.0e-11 | 3.2e-01 | 0 | 439 / 12,726 (3.45%) |
+| deep_otm (n=12,730) | 1.1e-11 | **2.2e-11** | 2.0e-11 | 3.2e-01 | 4 | 439 / 12,726 (3.45%) |
 | near_atm (n=506)    | 7.2e-15 | **5.9e-15** | 2.3e-15 | 1.3e-11 | 0 | 0 / 506 (0%) |
-| deep_itm (n=12,969) | 4.7e-12 | **4.3e-15** | 1.7e-15 | 3.3e-01 | 4 | 474 / 12,969 (3.65%) |
+| deep_itm (n=12,969) | 4.7e-12 | **4.3e-15** | 1.7e-15 | 3.3e-01 | 0 | 474 / 12,969 (3.65%) |
 | other (n=73,795)    | 1.3e-13 | **1.9e-13** | 1.2e-13 | 1.4e-05 | 0 | 0 / 73,795 (0%) |
 | **all (100,000)**   | 1.1e-11 | **2.2e-11** | 2.0e-11 | 3.3e-01 | 4 | 913 / 99,996 (0.91%) |
 
@@ -50,12 +50,12 @@ The volfi finding is reproduced via volfi's own `otm_context` API and volfi-self
 | solver | impl | n | ns/option | wall (s) | max abs err | NaN |
 |---|---|---:|---:|---:|---:|---:|
 | **voltic 1.1.0 `implied_vol_fast`** | Rust f64x8 SIMD (znver5) | 1,000,000 | **73.6** | 0.074 | 3.42e-11 | 0 |
-| py_lets_be_rational (LBR scalar) | Python+C++ scalar loop | 100,000 | 3,475.3 | 0.348 | 1.54e-11 | 0 |
-| py_vollib_vectorized | Python+C++ numpy-vectorized | 100,000 | 405.6 | 0.041 | 2.04e-11 | 0 |
+| py_lets_be_rational (LBR scalar) | pure Python + numba JIT, scalar loop | 100,000 | 3,475.3 | 0.348 | 1.54e-11 | 0 |
+| py_vollib_vectorized | Python + numba JIT, numpy-vectorized | 100,000 | 405.6 | 0.041 | 2.04e-11 | 0 |
 
 All rows on the same SplitMix64-seeded dataset (`bench/data.rs`, seed `0x5EEDBEEFCAFEF00D`). The voltic Rust rows are 1M options (median of 7 timed passes after warmup, `cargo run --release --bin bench`); the Python comparison rows are a 100k subsample (Python is per-option-slower so 1M wall time would be 3+ s for LBR scalar). Same dataset, same RNG draw, first 100k rows.[^2]
 
-Voltic's one-shot `implied_vol_fast` is about 48 times faster than LBR scalar and about 5.5 times faster than py_vollib_vectorized, with zero catastrophic errors and zero NaN.
+Voltic's one-shot `implied_vol_fast` returns zero catastrophic errors and zero NaN on this set. The py_lets_be_rational rows are the accuracy baseline: the package is a pure-Python port of Jäckel's algorithm with an optional numba JIT, and its σ is fixed by that algorithm evaluated in double precision, which does not depend on the host language. Its timing is a Python-loop plus numba figure that mostly measures interpreter and call overhead, so it is not a like-for-like speed baseline for a compiled SIMD kernel and no speed ratio against it is claimed here.
 
 ### Benchmarks: CLY-3D (Cui-Liu-Yao 2021 standard grid)
 
@@ -64,10 +64,10 @@ The CLY-3D grid (51,321 deep-OTM-weighted points; defined in Cui, Liu, Yao 2021 
 | solver | impl | ns/option | wall (s) | max abs err | NaN |
 |---|---|---:|---:|---:|---:|
 | **voltic 1.1.0 `implied_vol_fast`** | Rust f64x8 SIMD (znver5) | **89** | 0.0046 | 1.539e-09 | 13 |
-| py_lets_be_rational (scalar) | Python+C++ scalar loop | 3,268 | 0.168 | 1.539e-09 | 0 |
-| py_vollib_vectorized | Python+C++ numpy-vectorized | 372 | 0.019 | 1.539e-09 | 0 |
+| py_lets_be_rational (scalar) | pure Python + numba JIT, scalar loop | 3,268 | 0.168 | 1.539e-09 | 0 |
+| py_vollib_vectorized | Python + numba JIT, numpy-vectorized | 372 | 0.019 | 1.539e-09 | 0 |
 
-voltic, LBR, and py_vollib_vectorized all sit at 1.539e-9 max abs σ error (the f64 reverse-Black floor at the deep-OTM near-expiry corner). voltic is 36.7 times faster than LBR scalar and 4.2 times faster than py_vollib_vectorized.
+voltic, LBR, and py_vollib_vectorized all report 1.539e-9 max abs σ error on this grid. Error here is measured against the generating σ rather than against a 200-bit inversion of the stored price, so 1.539e-9 is the f64 price-rounding floor at the deep-OTM near-expiry corner, shared by every solver; this metric cannot resolve differences between solvers below that floor and is not evidence of accuracy parity. The SplitMix64 oracle table above is the only table in this README that resolves solver-level accuracy differences.
 
 Voltic's 13 NaN are rows where `σ_true = VOL_MIN = 0.01` exactly, excluded by the open-interval domain. See [Accuracy: known gaps](#accuracy-known-gaps).
 
@@ -81,7 +81,7 @@ Real options markets are densest at the money. The SplitMix64 dataset (1M synthe
 | py_lets_be_rational (scalar) | 5,315 | 3.338e-03 | 0 |
 | py_vollib_vectorized | 498 | 3.338e-03 | 0 |
 
-voltic and LBR sit at the same max error (3.338e-3, governed by 2 deep-wing cases shared by all three solvers); voltic is 78 times faster than LBR scalar on the ATM regime. voltic's 288 NaN are rows where `σ_true = VOL_MIN = 0.01` exactly, excluded by voltic's open-interval domain. See [Accuracy: known gaps](#accuracy-known-gaps).
+voltic and LBR report the same max error (3.338e-3, governed by 2 deep-wing cases shared by all three solvers); as on CLY-3D, this is measured against the generating σ and is not a solver-discriminating metric. voltic's 288 NaN are rows where `σ_true = VOL_MIN = 0.01` exactly, excluded by voltic's open-interval domain. See [Accuracy: known gaps](#accuracy-known-gaps).
 
 ---
 
@@ -177,7 +177,7 @@ for r in &results {
 }
 ```
 
-The typed path runs a Householder-3 update (FlashIV eq. 6, AQFED.jl parity) on a wide internal bracket `[1e-8, 50.0]`, with a three-term price-residual floor and a sigma-resolution-aware classification gate. Computed sigma is guaranteed within a 1e-6 absolute sigma-resolution budget of the f64-stored price's true sigma; 200-bit mpmath verification on stratified CLY-3D and ATM-dense samples confirms worst deviation 3.41e-14 and 5.57e-8 respectively.
+The typed path runs a Householder-3 update (FlashIV eq. 6, AQFED.jl parity) on a wide internal bracket `[1e-8, 50.0]`, with a three-term price-residual floor and a sigma-resolution-aware classification gate. Computed sigma is guaranteed within a 1e-6 absolute sigma-resolution budget of the f64-stored price's true sigma. The gate refuses rows it cannot certify: on the full CLY-3D grid the typed API returns `Computed` on 45,193 of 51,321 rows and `FailedToConverge` on 6,128 (11.9%); on ATM-dense it returns `Computed` on 48,581 of 48,831 rows and `FailedToConverge` on 250 (0.5%). The worst deviations are over the accepted rows only: 3.41e-14 on CLY-3D (n=45,193) and 5.57e-8 on ATM-dense (n=48,581), measured against σ_true by `bench/full_cly3d_scan.rs`, with 200-bit mpmath verification on stratified samples of those accepted rows. For comparison, the legacy `implied_vol_fast` returns NaN on 13 CLY-3D rows and 288 ATM-dense rows, so the typed gate is materially stricter on CLY-3D; `bench/full_cly3d_scan.rs` prints the full status histogram.
 
 The legacy f64-returning entry points (`implied_vol_fast`, `OtmContext::*`, `implied_vol_fully_vectorized`) are byte-identical with v1.1.0; use the typed API only when you need the regime structure.
 
@@ -196,7 +196,7 @@ The legacy f64-returning entry points (`implied_vol_fast`, `OtmContext::*`, `imp
   - `schadner_fast::avenue1_property_tests` (2): Avenue-1 fused-`erfcx` form: ATM finiteness, agreement away from centre.
   - `tests` (10): top-level integration: SIMD tail padding, deep-OTM short-expiry, edge-case NaN policy, rational kernel grid, put-call parity, named extreme regimes.
 - **11 proptest property tests** (`tests/properties.rs`): randomized round-trip σ recovery on each kernel, put-call parity, batch-vs-singleton SIMD agreement, `reference_table` against a py_lets_be_rational-generated reference.
-- **9 wing-seed tests** (`tests/wing_seed.rs`): Wren G corner, mpmath-200-bit reference table across `h ∈ {3..8} × q ∈ {0.01, 0.05, 0.1, 0.2, 0.3}`, boundary finiteness at the gate edges, SIMD lane independence, end-to-end kernel σ recovery at wing corners, Chebyshev-regime non-regression, context-API routing through the wing seed, and the volfi v×Δ NaN-set regression pin.
+- **9 wing-seed tests** (`tests/wing_seed.rs`): a deep-wing corner check that the seed is finite and within 15% of the reference value, mpmath-200-bit reference table across `h ∈ {3..8} × q ∈ {0.01, 0.05, 0.1, 0.2, 0.3}`, boundary finiteness at the gate edges, SIMD lane independence, end-to-end kernel σ recovery at wing corners, Chebyshev-regime non-regression, context-API routing through the wing seed, and the volfi v×Δ NaN-set regression pin.
 - **18 typed-result tests** (`tests/typed_result.rs`): typed-API status discrimination across the seven `ImpliedVolStatus` arms, sigma-resolution-aware classification, internal-bracket reachability for sub-VOL_MIN and super-VOL_MAX roots, accept-floor gate, vega-conditioning gate, and adversarial-grid expected-status agreement.
 - **5 backward-compat tests** (`tests/backward_compat.rs`): every `implied_vol` / `implied_vol_fast` NaN row maps to a non-Computed typed status, every Computed typed status round-trips through the legacy f64 API as a finite value, and the v1.1.0 NaN counts (CLY-3D 13, ATM-dense 288, wing v x Delta 2, Schadner cold 0) reproduce bitwise.
 - **2 doc tests**: `implied_vol_fast` usage in `src/lib.rs` and the Schadner usage example in `src/schadner.rs`.
@@ -290,7 +290,7 @@ Le Floc'h and Healy's FlashIV (arxiv 2605.29102 §3.2 Eq. 4) log-price residual 
 
 ## Domain contract
 
-Voltic solves for σ on the open interval `σ ∈ (VOL_MIN, VOL_MAX)` where `VOL_MIN = 0.01` and `VOL_MAX = 4.0`. Bench NaN counts on synthetic grids that land exactly on `σ = VOL_MIN` (13 on CLY-3D, 288 on ATM-dense) are honest out-of-domain rejection. The v1.2 `implied_vol_typed` API surfaces `BelowVolMin { computed }` with the sigma the iteration actually found for callers who want the boundary value.
+Voltic solves for σ on the open interval `σ ∈ (VOL_MIN, VOL_MAX)` where `VOL_MIN = 0.01` and `VOL_MAX = 5.0`. Bench NaN counts on synthetic grids that land exactly on `σ = VOL_MIN` (13 on CLY-3D, 288 on ATM-dense) are honest out-of-domain rejection. The v1.2 `implied_vol_typed` API surfaces `BelowVolMin { computed }` with the sigma the iteration actually found for callers who want the boundary value.
 
 ---
 

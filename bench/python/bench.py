@@ -4,8 +4,11 @@
 Reads the *same* dataset the Rust harness uses (the CSV written by
 `cargo run --release --bin bench -- --csv data.csv`), then times and checks the
 accuracy of:
-  * py_vollib                — the reference (wraps Jäckel's LetsBeRational C++);
-                               pure-Python loop, one option at a time
+  * py_vollib                — the accuracy reference (wraps py_lets_be_rational, a
+                               pure-Python port of Jäckel's LetsBeRational with an
+                               optional numba JIT; not C++); Python loop, one option
+                               at a time. Its timing is interpreter + JIT overhead,
+                               not a speed baseline for a compiled kernel
   * py_vollib_vectorized     — the numpy-vectorized variant of the same
   * QuantLib (Python binding)— QuantLib's `blackFormulaImpliedStdDevChambers`
                                / `BlackScholesCalculator` IV
